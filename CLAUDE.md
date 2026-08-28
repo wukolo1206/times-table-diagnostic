@@ -1,10 +1,10 @@
 ---
 project: 九九乘法熟練度診斷
 category: 康軒數學
-status: 後端已上線，待前端部署與實機驗證
+status: 已上線，待實機平板驗證
 version: 0.1.0
 url: https://wukolo1206.github.io/times-table-diagnostic/
-next_action: 建立 GitHub repo 並開啟 Pages，再用實機平板＋校內網路完成一次真實作答上傳（CORS 驗證）
+next_action: 用實機平板＋校內網路完成一次真實作答上傳（CORS 桌機測過不算數），再安排一個班試教
 updated: 2026-08-29
 ---
 
