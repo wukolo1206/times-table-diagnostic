@@ -2,7 +2,7 @@
 project: 九九乘法熟練度診斷
 category: 康軒數學
 status: 已上線，待實機平板驗證
-version: 0.1.0
+version: 0.2.0
 url: https://wukolo1206.github.io/times-table-diagnostic/
 next_action: 用實機平板＋校內網路完成一次真實作答上傳（CORS 桌機測過不算數），再安排一個班試教
 updated: 2026-08-29
@@ -38,7 +38,7 @@ updated: 2026-08-29
 | 檔案 | 用途 |
 |---|---|
 | `index.html` | 入口：班級代碼 → 選座號 |
-| `diagnose.html` | 81 題診斷（手速校準、中斷續作、錯開上傳） |
+| `diagnose.html` | 診斷作答（範圍可選、手速校準、中斷續作、提早結束、錯開上傳） |
 | `me.html` | 學生個人頁：9×9 熱圖、弱項清單、進步比較 |
 | `teacher.html` | 教師 Dashboard：兩層熱圖、Top 10、門檻調整、CSV、代作答、刪除 |
 

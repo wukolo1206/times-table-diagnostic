@@ -221,6 +221,51 @@ def test_diagnose(pg):
         ck(all(r[0] == 7 for r in pl['detail']), '上傳的題目都是 7 的乘法')
 
 
+def test_partial(pg):
+    """沒做完就結束，已作答的部分也要送出（設計文件 8.1 的 partial）。
+    原本沒實作也沒測，學生中途停下時作答會留在平板永遠進不了資料庫。"""
+    print('== 提早結束（partial）')
+    posted.clear()
+    pg.goto(BASE + 'diagnose.html?cls=TEST01&seat=1&r=9')
+    pg.evaluate('localStorage.clear()')
+    pg.reload()
+    pg.click('#toBaseline')
+    for i in range(5):
+        pg.wait_for_selector('.dot.go', timeout=8000)
+        pg.click('#dot')
+        if i < 4:
+            pg.wait_for_selector('.dot:not(.go)', timeout=3000)
+    pg.wait_for_selector('#quizStage:not([hidden])', timeout=8000)
+
+    ck(pg.is_visible('#stopEarly'), '作答畫面有「先做到這裡」')
+    # 答兩題就停
+    for n in range(2):
+        pg.wait_for_function('document.getElementById("prog").textContent === "%d / 9"' % (n + 1),
+                             timeout=6000)
+        a, b = [int(x) for x in pg.inner_text('#q').replace('×', ' ').split()]
+        ans = str(a * b)
+        for d in ans:
+            pg.click('.pad button:text-is("%s")' % d)
+        if len(ans) == 1:
+            pg.click('.pad button:text-is("送出")')
+
+    pg.wait_for_function('document.getElementById("prog").textContent === "3 / 9"', timeout=6000)
+    pg.once('dialog', lambda d: d.accept())
+    pg.click('#stopEarly')
+    pg.wait_for_selector('#doneStage:not([hidden])', timeout=10000)
+    pg.wait_for_function('document.getElementById("upMsg").textContent.indexOf("上傳中") === -1',
+                         timeout=20000)
+
+    ck(len(posted) == 1, '提早結束也會上傳，實際 %d 次' % len(posted))
+    if posted:
+        pl = posted[0]
+        ck(pl['status'] == 'partial', '狀態標為 partial')
+        ck(len(pl['detail']) == 2, '只送已作答的 2 題')
+        errs = contract_errors(pl)
+        ck(not errs, '提早結束的資料也符合契約：' + ('; '.join(errs[:2]) if errs else 'OK'))
+    ck(pg.evaluate('localStorage.getItem("ttd_progress_v1")') is None, '送出後清掉進度')
+
+
 def test_me(pg):
     print('== me.html')
     pg.goto(BASE + 'me.html?cls=TEST01&seat=1')
@@ -286,6 +331,7 @@ def main():
         try:
             test_index(pg)
             test_diagnose(pg)
+            test_partial(pg)
             test_me(pg)
             test_teacher(pg)
         finally:

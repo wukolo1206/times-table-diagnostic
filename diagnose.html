@@ -67,6 +67,9 @@
     <div class="ansbox" id="ans">&nbsp;</div>
     <div class="fb" id="fb"></div>
     <div class="pad" id="pad"></div>
+    <div style="margin-top:14px">
+      <button id="stopEarly" class="ghost" style="font-size:15px;padding:8px 14px">先做到這裡</button>
+    </div>
   </div>
 
   <div class="card stage" id="breakStage" hidden>
@@ -251,51 +254,72 @@
   };
 
   /* ---- 結束與上傳 ---- */
+
+  /** 由某份作答狀態組出 payload。st 可以是別場（沒做完）的狀態。 */
+  function buildPayload(st, status) {
+    return {
+      sessionId: st.sessionId,
+      classCode: st.classCode,
+      seat: st.seat,
+      name: name,
+      mode: 'diagnostic',
+      context: 'class',
+      status: status,
+      answeredAt: st.startedAt,
+      config: { sv: 1, thresholdMs: C.DEFAULT_THRESHOLD_MS, limitSec: null,
+                baselineMs: st.baselineMs, proxy: isProxy ? 1 : 0,
+                rows: C.formatRows(st.rows || rows) },
+      detail: C.encodeDetail(st.results)
+    };
+  }
+
+  /** 送出。onMsg 省略代表背景補送，不顯示訊息。 */
+  function upload(payload, onMsg) {
+    setTimeout(function () {                    // 座號決定的錯開延遲（D16）
+      uploader.flush().then(function () {       // 先補送別人的殘留（9.2）
+        return uploader.send(payload);
+      }).then(function (r) {
+        if (!onMsg) return;
+        if (r.status === 'sent') onMsg('成績已上傳。', false);
+        else if (r.status === 'rejected') onMsg('上傳被拒（' + r.code + '），請告訴老師。', true);
+        else onMsg('暫時連不上，資料已存在這台平板，下次開啟會自動補送。', false);
+      });
+    }, N.uploadDelayMs(payload.seat));
+  }
+
+  /**
+   * 沒做完就離開的場次也要送出（設計文件 8.1 的 partial）。
+   * 原本漏做這段，學生中途停下時作答會留在平板、永遠不會進資料庫。
+   */
+  function uploadAbandoned(st) {
+    if (!st || !st.results || !st.results.length) return;
+    upload(buildPayload(st, 'partial'), null);
+  }
+
   function finishSession(status) {
     Q.clearProgress();
     var correct = state.results.filter(function (r) { return r.ok === 1; }).length;
     $('doneSummary').textContent = '答對 ' + correct + ' 題，共 ' + state.results.length + ' 題。';
     show('doneStage');
 
-    var payload = {
-      sessionId: state.sessionId,
-      classCode: classCode,
-      seat: seat,
-      name: name,
-      mode: 'diagnostic',
-      context: 'class',
-      status: status,
-      answeredAt: state.startedAt,
-      config: { sv: 1, thresholdMs: C.DEFAULT_THRESHOLD_MS, limitSec: null,
-                baselineMs: state.baselineMs, proxy: isProxy ? 1 : 0,
-                rows: C.formatRows(state.rows || rows) },
-      detail: C.encodeDetail(state.results)
-    };
-
     if (!uploader.queue.available()) {
       $('upMsg').textContent = '這台平板無法暫存資料，請不要關閉頁面直到上傳完成。';
       $('upMsg').className = 'msg err';
     }
 
-    // 座號決定的錯開延遲（D16）
-    setTimeout(function () {
-      // 先補送別人留在這台平板上的資料（9.2），再送自己的
-      uploader.flush().then(function () {
-        return uploader.send(payload);
-      }).then(function (r) {
-        if (r.status === 'sent') {
-          $('upMsg').textContent = '成績已上傳。';
-          $('upMsg').className = 'msg';
-        } else if (r.status === 'rejected') {
-          $('upMsg').textContent = '上傳被拒（' + r.code + '），請告訴老師。';
-          $('upMsg').className = 'msg err';
-        } else {
-          $('upMsg').textContent = '暫時連不上，資料已存在這台平板，下次開啟會自動補送。';
-          $('upMsg').className = 'msg';
-        }
-      });
-    }, N.uploadDelayMs(seat));
+    upload(buildPayload(state, status), function (msg, isErr) {
+      $('upMsg').textContent = msg;
+      $('upMsg').className = isErr ? 'msg err' : 'msg';
+    });
   }
+
+  /** 學生主動提早結束：已作答的部分照樣送出。 */
+  $('stopEarly').onclick = function () {
+    if (!state || !state.results.length) { location.href = 'index.html'; return; }
+    if (!confirm('要先做到這裡嗎？\n已經做的 ' + state.results.length +
+                 ' 題會送出，下次可以再測其他範圍。')) return;
+    finishSession('partial');
+  };
 
   $('toMe').onclick = function () {
     location.href = 'me.html?cls=' + encodeURIComponent(classCode) + '&seat=' + seat;
@@ -303,13 +327,18 @@
 
   /* ---- 續作（8.1） ---- */
   var saved = Q.loadProgress();
-  if (saved && saved.classCode === classCode && saved.seat === seat &&
-      saved.cells && saved.idx > 0 && saved.idx < saved.cells.length) {
-    if (confirm('要繼續上次的診斷嗎？已經完成 ' + saved.idx + ' 題。\n\n按「取消」重新開始。')) {
+  if (saved && saved.cells && saved.results && saved.results.length &&
+      saved.idx > 0 && saved.idx < saved.cells.length) {
+    if (saved.classCode !== classCode || saved.seat !== seat) {
+      uploadAbandoned(saved);   // 共用平板：上一位沒做完就走了，幫他送出
+      Q.clearProgress();
+    } else if (confirm('要繼續上次的診斷嗎？已經完成 ' + saved.idx +
+                       ' 題。\n\n按「取消」會把已做的部分送出，然後重新開始。')) {
       state = saved;
       show('quizStage');
       nextQuestion();
     } else {
+      uploadAbandoned(saved);   // 不可直接丟掉——那是真實作答紀錄
       Q.clearProgress();
     }
   }
