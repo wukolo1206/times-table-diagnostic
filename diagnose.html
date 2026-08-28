@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>九九乘法診斷｜作答</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .stage { text-align: center; }
+  .progress { color: var(--muted); font-size: 15px; margin-bottom: 8px; }
+  .q { font-size: 60px; font-weight: 700; letter-spacing: 4px; margin: 20px 0 8px; }
+  .ansbox {
+    font-size: 42px; height: 62px; letter-spacing: 6px;
+    border-bottom: 3px solid var(--line); display: inline-block; min-width: 140px;
+  }
+  .fb { height: 34px; font-size: 26px; margin-top: 6px; }
+  .fb.ok { color: var(--fluent); }
+  .fb.no { color: var(--weak); }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+  .pad button {
+    font-size: 30px; padding: 16px 0; background: #fff; color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  .pad button.wide { font-size: 20px; }
+  .pad button:active { background: var(--line); }
+  .dot {
+    width: 170px; height: 170px; border-radius: 50%; margin: 20px auto;
+    background: var(--unknown); display: flex; align-items: center;
+    justify-content: center; font-size: 22px; color: var(--muted); cursor: pointer;
+    user-select: none;
+  }
+  .dot.go { background: var(--fluent); color: #fff; }
+  .intro { text-align: left; line-height: 1.9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card stage" id="introStage">
+    <h1>準備開始</h1>
+    <p class="sub" id="who"></p>
+    <p class="intro">
+      這裡有 81 題乘法。<br>
+      <strong>看到題目就直接寫出答案</strong>，不用算，想不出來就跳過。<br>
+      我們想知道你哪幾題還不熟，答錯沒有關係。
+    </p>
+    <button id="toBaseline">開始</button>
+  </div>
+
+  <div class="card stage" id="baselineStage" hidden>
+    <h1>先測手速</h1>
+    <p class="sub">圓圈變成綠色，就馬上按它。共 5 次。</p>
+    <div class="dot" id="dot">等一下…</div>
+    <div class="msg" id="baseMsg"></div>
+  </div>
+
+  <div class="card stage" id="quizStage" hidden>
+    <div class="progress" id="prog">1 / 81</div>
+    <div class="q" id="q">7 × 8</div>
+    <div class="ansbox" id="ans">&nbsp;</div>
+    <div class="fb" id="fb"></div>
+    <div class="pad" id="pad"></div>
+  </div>
+
+  <div class="card stage" id="breakStage" hidden>
+    <h1>休息一下</h1>
+    <p class="sub">已經完成一半了。準備好再繼續。</p>
+    <button id="resume">繼續作答</button>
+  </div>
+
+  <div class="card stage" id="doneStage" hidden>
+    <h1>完成了</h1>
+    <p class="sub" id="doneSummary"></p>
+    <div class="msg" id="upMsg">成績上傳中…</div>
+    <div style="margin-top:16px">
+      <button id="toMe">看我的結果</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="fact-core.js"></script>
+<script src="fact-net.js"></script>
+<script src="fact-quiz.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = window.FactCore, N = window.FactNet, Q = window.FactQuiz;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function qs(name) {
+    var m = new RegExp('[?&]' + name + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  var classCode = qs('cls');
+  var seat = Number(qs('seat'));
+  var isProxy = qs('proxy') === '1';
+  var name = sessionStorage.getItem('ttd_name') || '';
+  if (!classCode || !seat) { location.href = 'index.html'; return; }
+  $('who').textContent = (name ? (name + '（' + seat + ' 號）') : (seat + ' 號')) +
+                         (isProxy ? '　※老師代作答' : '');
+
+  var uploader = N.createUploader({
+    url: window.TTD_GAS_URL,
+    fetchFn: window.fetch.bind(window),
+    storage: window.localStorage
+  });
+
+  var state = null;
+
+  function uuid() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
+  function newState() {
+    return {
+      sessionId: uuid(), classCode: classCode, seat: seat,
+      cells: C.shuffle(C.allCells()), idx: 0, results: [], baselineMs: null,
+      breakDone: false, startedAt: new Date().toISOString()
+    };
+  }
+
+  function show(id) {
+    ['introStage', 'baselineStage', 'quizStage', 'breakStage', 'doneStage']
+      .forEach(function (s) { $(s).hidden = (s !== id); });
+  }
+
+  /* ---- 作答鍵盤 ---- */
+  var current = null;
+
+  function buildPad() {
+    var pad = $('pad');
+    pad.innerHTML = '';
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清除', '0', '送出']
+      .forEach(function (label) {
+        var b = document.createElement('button');
+        b.textContent = label;
+        if (label === '清除' || label === '送出') b.className = 'wide';
+        b.onclick = function () {
+          if (!current || current.isDone()) return;
+          if (label === '清除') { $('ans').textContent = current.clear() || ' '; return; }
+          if (label === '送出') { current.submit(); return; }
+          $('ans').textContent = current.pressDigit(label) || ' ';
+        };
+        pad.appendChild(b);
+      });
+  }
+  buildPad();
+
+  function nextQuestion() {
+    // 中場休息（8.1）
+    if (state.idx === 41 && !state.breakDone) {
+      state.breakDone = true;
+      Q.saveProgress(state);
+      show('breakStage');
+      return;
+    }
+    if (state.idx >= 81) { finishSession('complete'); return; }
+
+    var cell = state.cells[state.idx];
+    $('prog').textContent = (state.idx + 1) + ' / 81';
+    $('q').textContent = cell.a + ' × ' + cell.b;
+    $('ans').textContent = ' ';
+    $('fb').textContent = '';
+    $('fb').className = 'fb';
+
+    current = Q.createQuestion({
+      cell: cell,
+      onFinish: function (r) {
+        state.results.push(r);
+        state.idx++;
+        Q.saveProgress(state);
+
+        // 只回饋對錯，不顯示正確答案（8.1）
+        if (r.ok === 1) { $('fb').textContent = '✓'; $('fb').className = 'fb ok'; }
+        else if (r.ok === 0) { $('fb').textContent = '✗'; $('fb').className = 'fb no'; }
+        else { $('fb').textContent = '先跳過'; $('fb').className = 'fb'; }
+
+        setTimeout(nextQuestion, 400);
+      }
+    });
+    current.start();
+  }
+
+  $('resume').onclick = function () { show('quizStage'); nextQuestion(); };
+
+  /* ---- 基準校準（4.5） ---- */
+  $('toBaseline').onclick = function () {
+    state = newState();
+    show('baselineStage');
+    var bl = Q.createBaseline({
+      trials: 5,
+      onWait: function () { $('dot').className = 'dot'; $('dot').textContent = '等一下…'; },
+      onGo: function () { $('dot').className = 'dot go'; $('dot').textContent = '按我！'; },
+      onTooEarly: function () { $('baseMsg').textContent = '太早了，等變綠色再按。'; },
+      onHit: function (n, total) {
+        // 按過就立刻不再是綠色，避免學生對同一次重複按
+        $('dot').className = 'dot';
+        $('dot').textContent = '好';
+        $('baseMsg').textContent = n + ' / ' + total;
+      },
+      onFinish: function (med) {
+        state.baselineMs = Math.round(med);
+        show('quizStage');
+        nextQuestion();
+      }
+    });
+    $('dot').onclick = bl.press;
+    bl.start();
+  };
+
+  /* ---- 結束與上傳 ---- */
+  function finishSession(status) {
+    Q.clearProgress();
+    var correct = state.results.filter(function (r) { return r.ok === 1; }).length;
+    $('doneSummary').textContent = '答對 ' + correct + ' 題，共 ' + state.results.length + ' 題。';
+    show('doneStage');
+
+    var payload = {
+      sessionId: state.sessionId,
+      classCode: classCode,
+      seat: seat,
+      name: name,
+      mode: 'diagnostic',
+      context: 'class',
+      status: status,
+      answeredAt: state.startedAt,
+      config: { sv: 1, thresholdMs: C.DEFAULT_THRESHOLD_MS, limitSec: null,
+                baselineMs: state.baselineMs, proxy: isProxy ? 1 : 0 },
+      detail: C.encodeDetail(state.results)
+    };
+
+    if (!uploader.queue.available()) {
+      $('upMsg').textContent = '這台平板無法暫存資料，請不要關閉頁面直到上傳完成。';
+      $('upMsg').className = 'msg err';
+    }
+
+    // 座號決定的錯開延遲（D16）
+    setTimeout(function () {
+      // 先補送別人留在這台平板上的資料（9.2），再送自己的
+      uploader.flush().then(function () {
+        return uploader.send(payload);
+      }).then(function (r) {
+        if (r.status === 'sent') {
+          $('upMsg').textContent = '成績已上傳。';
+          $('upMsg').className = 'msg';
+        } else if (r.status === 'rejected') {
+          $('upMsg').textContent = '上傳被拒（' + r.code + '），請告訴老師。';
+          $('upMsg').className = 'msg err';
+        } else {
+          $('upMsg').textContent = '暫時連不上，資料已存在這台平板，下次開啟會自動補送。';
+          $('upMsg').className = 'msg';
+        }
+      });
+    }, N.uploadDelayMs(seat));
+  }
+
+  $('toMe').onclick = function () {
+    location.href = 'me.html?cls=' + encodeURIComponent(classCode) + '&seat=' + seat;
+  };
+
+  /* ---- 續作（8.1） ---- */
+  var saved = Q.loadProgress();
+  if (saved && saved.classCode === classCode && saved.seat === seat &&
+      saved.idx > 0 && saved.idx < 81) {
+    if (confirm('要繼續上次的診斷嗎？已經完成 ' + saved.idx + ' 題。\n\n按「取消」重新開始。')) {
+      state = saved;
+      show('quizStage');
+      nextQuestion();
+    } else {
+      Q.clearProgress();
+    }
+  }
+
+  // 頁面載入時就先補送殘留（9.2）
+  uploader.flush();
+})();
+</script>
+</body>
+</html>

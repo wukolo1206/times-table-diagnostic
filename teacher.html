@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>九九乘法診斷｜教師</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .wrap { max-width: 1080px; }
+  .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .cols > .main { flex: 2 1 460px; }
+  .cols > .side { flex: 1 1 260px; }
+  table.heat th, table.heat td { width: 52px; height: 46px; font-size: 12px; }
+  table.heat td { cursor: pointer; }
+  td .n { display: block; font-size: 11px; opacity: .85; }
+  ol.top { padding-left: 22px; line-height: 2; font-size: 17px; }
+  ol.top li { cursor: pointer; }
+  .bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .bar select { width: auto; font-size: 16px; padding: 8px; }
+  .namelist { font-size: 16px; line-height: 1.9; }
+  .warn { background: #fff6f4; border-color: var(--weak); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>九九乘法診斷</h1>
+
+  <div class="card" id="loginCard">
+    <label>班級代碼</label>
+    <input type="text" id="code" autocomplete="off">
+    <label style="display:block;margin-top:10px">教師 PIN（4 碼）</label>
+    <input type="password" id="pin" inputmode="numeric" maxlength="4">
+    <div style="margin-top:12px"><button id="login">進入</button></div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="board" hidden>
+    <div class="bar">
+      <strong id="cname" style="font-size:19px"></strong>
+      <span id="coverage" class="sub" style="margin:0"></span>
+      <label>資料範圍
+        <select id="grp">
+          <option value="base">只看課堂診斷</option>
+          <option value="all">含回家與練習</option>
+        </select>
+      </label>
+      <label>熟練門檻
+        <select id="thr">
+          <option value="2000">2.0 秒</option>
+          <option value="3000" selected>3.0 秒</option>
+          <option value="4000">4.0 秒</option>
+        </select>
+      </label>
+      <button id="csv" class="ghost">匯出 CSV</button>
+    </div>
+
+    <div class="cols">
+      <div class="main">
+        <div class="card">
+          <div class="gridwrap"><table class="heat" id="heat"></table></div>
+          <p class="sub" style="margin:10px 0 0">
+            格子顏色＝該題不會＋不熟的人數比例。斜紋＝做過的人不到六成，先別當結論。點任一格看是哪些人。
+          </p>
+        </div>
+        <div class="card" id="detailCard" hidden>
+          <h2 style="margin:0 0 10px" id="detailTitle"></h2>
+          <div class="namelist" id="detailBody"></div>
+        </div>
+      </div>
+
+      <div class="side">
+        <div class="card">
+          <h2 style="margin:0 0 8px">明天要補的</h2>
+          <ol class="top" id="top"></ol>
+          <p class="sub" id="topEmpty" hidden style="margin:0">目前沒有明顯落後的算式。</p>
+        </div>
+        <div class="card" id="anomalyCard" hidden>
+          <h2 style="margin:0 0 8px">要看一下的</h2>
+          <div class="namelist" id="anomalies"></div>
+        </div>
+        <div class="card">
+          <h2 style="margin:0 0 8px">代作答</h2>
+          <p class="sub" style="margin:0 0 8px">幫缺席或轉學的學生開始診斷。</p>
+          <select id="proxySeat"></select>
+          <div style="margin-top:10px"><button id="proxyGo">開始</button></div>
+        </div>
+        <div class="card warn">
+          <h2 style="margin:0 0 8px">刪除本班資料</h2>
+          <p class="sub" style="margin:0 0 8px">全部作答紀錄與名單都會刪掉，無法復原。</p>
+          <button id="del" style="background:var(--weak)">刪除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="fact-core.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = window.FactCore;
+  var $ = function (id) { return document.getElementById(id); };
+  var data = null, classCode = '', pin = '';
+
+  function qs(n) {
+    var m = new RegExp('[?&]' + n + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function group() { return $('grp').value; }
+  function threshold() { return Number($('thr').value); }
+
+  /**
+   * 門檻改變時要重算等級。
+   * 快照裡存的是原始中位數 med，等級只是呈現層的染色結果（D3）——
+   * 所以這裡用 med 重跑 gradeAttempt，不去動任何原始資料。
+   * med 為 null 代表那格是「錯太多」判定，門檻改變不影響它。
+   */
+  function recolor(cells) {
+    var T = threshold();
+    return cells.map(function (c) {
+      if (c.n === 0 || c.med === null) return c;
+      return {
+        n: c.n, correct: c.correct, med: c.med, tent: c.tent,
+        lv: C.gradeAttempt({ ok: 1, ms: c.med, flags: 0 }, T)
+      };
+    });
+  }
+
+  function snapshots() {
+    var g = group();
+    return data.students.map(function (s) {
+      var o = { base: s.base, all: s.all };
+      o[g] = recolor(s[g]);
+      return o;
+    });
+  }
+
+  function render() {
+    var g = group();
+    var snaps = snapshots();
+    var heat = C.classHeatmap(snaps, g);
+    var cov = C.classCoverage(snaps, g);
+    $('coverage').textContent = '　' + cov.total + ' 人中 ' + cov.done + ' 人有資料';
+
+    var t = $('heat');
+    t.innerHTML = '';
+    var head = t.insertRow();
+    head.insertCell().outerHTML = '<th>×</th>';
+    for (var b = 1; b <= 9; b++) head.insertCell().outerHTML = '<th>' + b + '</th>';
+
+    for (var a = 1; a <= 9; a++) {
+      var tr = t.insertRow();
+      tr.insertCell().outerHTML = '<th>' + a + '</th>';
+      for (var bb = 1; bb <= 9; bb++) {
+        (function (row, aa, b2) {
+          var h = heat[C.cellIndex(aa, b2)];
+          var td = row.insertCell();
+          var lv = h.covered === 0 ? 'unknown'
+                 : h.weakRatio >= 0.5 ? 'weak'
+                 : h.weakRatio > 0 ? 'shaky' : 'fluent';
+          td.className = lv + (h.sparse ? ' sparse' : '');
+          td.innerHTML = (aa * b2) + '<span class="n">' + h.weak + ' / ' + h.shaky + '</span>';
+          td.title = aa + ' × ' + b2 + '　不會 ' + h.weak + ' 人、不熟 ' + h.shaky +
+                     ' 人、有資料 ' + h.covered + ' / ' + h.total + ' 人';
+          td.onclick = function () { showDetail(aa, b2); };
+        })(tr, a, bb);
+      }
+    }
+
+    var top = C.topWeak(heat, 10);
+    var ol = $('top');
+    ol.innerHTML = '';
+    top.forEach(function (h) {
+      var li = document.createElement('li');
+      li.textContent = h.a + ' × ' + h.b + '　（不會 ' + h.weak + '、不熟 ' + h.shaky + '）';
+      li.onclick = function () { showDetail(h.a, h.b); };
+      ol.appendChild(li);
+    });
+    $('topEmpty').hidden = top.length > 0;
+
+    if (data.anomalies && data.anomalies.length) {
+      $('anomalies').innerHTML = data.anomalies.map(function (x) {
+        return x.seat + ' 號：' + x.msg;
+      }).join('<br>');
+      $('anomalyCard').hidden = false;
+    }
+  }
+
+  function showDetail(a, b) {
+    var g = group();
+    var idx = C.cellIndex(a, b);
+    var weak = [], shaky = [], none = [];
+    data.students.forEach(function (s) {
+      var c = recolor(s[g])[idx];
+      var who = s.name ? (s.seat + ' ' + s.name) : (s.seat + ' 號');
+      if (c.n === 0) none.push(who);
+      else if (c.lv === C.LEVEL.WEAK) weak.push(who + '（' + c.n + ' 次）');
+      else if (c.lv === C.LEVEL.SHAKY) shaky.push(who + '（' + Math.round(c.med) + ' 毫秒）');
+    });
+    $('detailTitle').textContent = a + ' × ' + b + ' ＝ ' + (a * b);
+    $('detailBody').innerHTML =
+      '<strong>不會（' + weak.length + '）</strong><br>' + (weak.join('、') || '無') +
+      '<br><br><strong>不熟（' + shaky.length + '）</strong><br>' + (shaky.join('、') || '無') +
+      '<br><br><span class="sub">沒有資料：' + (none.join('、') || '無') + '</span>';
+    $('detailCard').hidden = false;
+    $('detailCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function exportCsv() {
+    var g = group();
+    var rows = [['座號', '姓名', '被乘數', '乘數', '等級', '次數', '中位毫秒']];
+    data.students.forEach(function (s) {
+      var cells = recolor(s[g]);
+      for (var i = 0; i < 81; i++) {
+        if (cells[i].n === 0) continue;
+        var cc = C.cellOf(i);
+        rows.push([s.seat, s.name, cc.a, cc.b, cells[i].lv, cells[i].n,
+                   cells[i].med === null ? '' : Math.round(cells[i].med)]);
+      }
+    });
+    var csv = '﻿' + rows.map(function (r) { return r.join(','); }).join('\n');
+    var a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = classCode + '_九九乘法診斷.csv';
+    a.click();
+  }
+
+  function load() {
+    $('loginMsg').textContent = '讀取中…';
+    $('loginMsg').className = 'msg';
+    var url = window.TTD_GAS_URL + '?action=dashboard&cls=' + encodeURIComponent(classCode) +
+              '&pin=' + encodeURIComponent(pin);
+    fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok) {
+          $('loginMsg').className = 'msg err';
+          $('loginMsg').textContent =
+            r.code === 'PIN_LOCKED' ? '嘗試太多次，請等 30 分鐘。'
+            : r.code === 'BAD_PIN' ? ('PIN 不對，還可以試 ' + r.left + ' 次。')
+            : ('讀不到資料（' + r.code + '）');
+          return;
+        }
+        data = r;
+        $('loginMsg').textContent = '';
+        $('loginCard').hidden = true;
+        $('board').hidden = false;
+        $('cname').textContent = r.className;
+        $('thr').value = String(r.thresholdMs);
+
+        var sel = $('proxySeat');
+        sel.innerHTML = '';
+        r.students.forEach(function (s) {
+          var o = document.createElement('option');
+          o.value = s.seat;
+          o.textContent = s.name ? (s.seat + ' ' + s.name) : (s.seat + ' 號');
+          sel.appendChild(o);
+        });
+        render();
+      })
+      .catch(function () {
+        $('loginMsg').className = 'msg err';
+        $('loginMsg').textContent = '連不上伺服器。';
+      });
+  }
+
+  $('login').onclick = function () {
+    classCode = $('code').value.trim().toUpperCase();
+    pin = $('pin').value.trim();
+    if (!classCode || !pin) { $('loginMsg').textContent = '請填班級代碼與 PIN。'; return; }
+    load();
+  };
+  $('grp').onchange = render;
+  $('thr').onchange = render;
+  $('csv').onclick = exportCsv;
+
+  $('proxyGo').onclick = function () {
+    location.href = 'diagnose.html?cls=' + encodeURIComponent(classCode) +
+                    '&seat=' + $('proxySeat').value + '&proxy=1';
+  };
+
+  $('del').onclick = function () {
+    var t = prompt('這會刪掉本班全部資料，無法復原。\n確定的話請輸入班級代碼：');
+    if (t !== classCode) return;
+    var url = window.TTD_GAS_URL + '?action=deleteclass&cls=' +
+              encodeURIComponent(classCode) + '&pin=' + encodeURIComponent(pin) +
+              '&confirm=' + encodeURIComponent(t);
+    fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); })
+      .then(function (r) {
+        alert(r.ok ? '已刪除。' : '刪除失敗：' + r.code);
+        if (r.ok) location.href = 'teacher.html';
+      });
+  };
+
+  var pre = qs('cls');
+  if (pre) $('code').value = pre;
+})();
+</script>
+</body>
+</html>

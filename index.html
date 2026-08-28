@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>九九乘法診斷</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>九九乘法診斷</h1>
+  <p class="sub">先選出你自己，再開始作答。</p>
+
+  <div class="card" id="codeCard">
+    <label for="code">班級代碼</label>
+    <input type="text" id="code" autocomplete="off" autocapitalize="characters" placeholder="例如 A7K2Q9">
+    <div style="margin-top:12px"><button id="go">下一步</button></div>
+    <div class="msg" id="codeMsg"></div>
+  </div>
+
+  <div class="card" id="seatCard" hidden>
+    <div id="className" style="font-size:18px;font-weight:700"></div>
+    <p class="sub" style="margin:6px 0 0">找到自己的座號，點一下。</p>
+    <div class="seat-grid" id="seats"></div>
+    <div style="margin-top:16px">
+      <button id="start" disabled>開始診斷（81 題）</button>
+      <button id="mine" class="ghost" disabled>看我的紀錄</button>
+    </div>
+    <div class="msg" id="seatMsg"></div>
+  </div>
+</div>
+
+<script src="fact-core.js"></script>
+<script src="fact-net.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var picked = null;
+
+  function qs(name) {
+    var m = new RegExp('[?&]' + name + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function api(action, params) {
+    var url = window.TTD_GAS_URL + '?action=' + action;
+    Object.keys(params || {}).forEach(function (k) {
+      url += '&' + k + '=' + encodeURIComponent(params[k]);
+    });
+    return fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); });
+  }
+
+  function loadClass(code) {
+    $('codeMsg').textContent = '查詢中…';
+    $('codeMsg').className = 'msg';
+    api('students', { cls: code }).then(function (r) {
+      if (!r.ok) {
+        $('codeMsg').textContent = '找不到這個班級代碼，請再確認一次。';
+        $('codeMsg').className = 'msg err';
+        return;
+      }
+      $('codeMsg').textContent = '';
+      $('className').textContent = r.className;
+      $('codeCard').hidden = true;
+      $('seatCard').hidden = false;
+      sessionStorage.setItem('ttd_class', code);
+
+      var box = $('seats');
+      box.innerHTML = '';
+      r.students.forEach(function (s) {
+        var b = document.createElement('button');
+        b.className = 'seat-btn';
+        b.textContent = s.name ? (s.seat + ' ' + s.name) : String(s.seat);
+        b.onclick = function () {
+          Array.prototype.forEach.call(box.children, function (x) { x.classList.remove('on'); });
+          b.classList.add('on');
+          picked = s;
+          $('start').disabled = false;
+          $('mine').disabled = false;
+        };
+        box.appendChild(b);
+      });
+    }).catch(function () {
+      $('codeMsg').textContent = '連不上伺服器，請確認網路。';
+      $('codeMsg').className = 'msg err';
+    });
+  }
+
+  $('go').onclick = function () {
+    var code = $('code').value.trim().toUpperCase();
+    if (!code) { $('codeMsg').textContent = '請先輸入班級代碼。'; return; }
+    loadClass(code);
+  };
+  $('code').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') $('go').click();
+  });
+
+  function goTo(page) {
+    var code = sessionStorage.getItem('ttd_class');
+    sessionStorage.setItem('ttd_seat', picked.seat);
+    sessionStorage.setItem('ttd_name', picked.name || '');
+    // 查詢參數，不用 hash（GAS 慣例）
+    location.href = page + '?cls=' + encodeURIComponent(code) + '&seat=' + picked.seat;
+  }
+
+  $('start').onclick = function () { goTo('diagnose.html'); };
+  $('mine').onclick = function () { goTo('me.html'); };
+
+  // 網址帶了班級代碼就直接進第二步
+  var pre = qs('cls');
+  if (pre) { $('code').value = pre; loadClass(pre); }
+})();
+</script>
+</body>
+</html>

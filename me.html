@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的九九乘法</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  table.heat { margin: 8px auto; }
+  table.heat th, table.heat td { width: 40px; height: 40px; font-size: 13px; }
+  ul.weaklist { padding-left: 20px; line-height: 2; font-size: 18px; }
+  .cmp { display: flex; gap: 20px; flex-wrap: wrap; }
+  .cmp > div { flex: 1 1 130px; }
+  .big { font-size: 30px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">我的九九乘法</h1>
+  <p class="sub" id="sub">載入中…</p>
+
+  <div class="card">
+    <div class="gridwrap"><table class="heat" id="heat"></table></div>
+    <div class="legend">
+      <span><i style="background:var(--fluent)"></i>很熟</span>
+      <span><i style="background:var(--shaky)"></i>還要再快一點</span>
+      <span><i style="background:var(--weak)"></i>還要多練</span>
+      <span><i style="background:var(--unknown)"></i>還沒測過</span>
+      <span>斜紋＝只測過一兩次，還不準</span>
+    </div>
+  </div>
+
+  <div class="card" id="weakCard" hidden>
+    <h2 style="margin:0 0 8px">我還要多練的</h2>
+    <ul class="weaklist" id="weakList"></ul>
+  </div>
+
+  <div class="card" id="cmpCard" hidden>
+    <h2 style="margin:0 0 12px">我的進步</h2>
+    <div class="cmp" id="cmp"></div>
+  </div>
+
+  <div class="card">
+    <button id="dl" class="ghost">下載我的紀錄</button>
+  </div>
+</div>
+
+<script src="fact-core.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = window.FactCore;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function qs(n) {
+    var m = new RegExp('[?&]' + n + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  var classCode = qs('cls'), seat = Number(qs('seat'));
+  if (!classCode || !seat) { location.href = 'index.html'; return; }
+
+  // 學生端用語：紅格說「還要多練」，不說「不會」（Q5 定案）
+  var LABEL = {};
+  LABEL[C.LEVEL.FLUENT] = '很熟';
+  LABEL[C.LEVEL.SHAKY] = '還要再快一點';
+  LABEL[C.LEVEL.WEAK] = '還要多練';
+  LABEL[C.LEVEL.UNKNOWN] = '還沒測過';
+
+  function renderHeat(cells) {
+    var t = $('heat');
+    t.innerHTML = '';
+    var head = t.insertRow();
+    head.insertCell().outerHTML = '<th>×</th>';
+    for (var b = 1; b <= 9; b++) head.insertCell().outerHTML = '<th>' + b + '</th>';
+
+    for (var a = 1; a <= 9; a++) {
+      var tr = t.insertRow();
+      tr.insertCell().outerHTML = '<th>' + a + '</th>';
+      for (var bb = 1; bb <= 9; bb++) {
+        var c = cells[C.cellIndex(a, bb)];
+        var td = tr.insertCell();
+        td.className = c.lv + (c.tent ? ' tent' : '');
+        td.textContent = a * bb;
+        td.title = a + ' × ' + bb + '＝' + (a * bb) + '　' + LABEL[c.lv] +
+                   (c.n ? ('（測過 ' + c.n + ' 次）') : '');
+      }
+    }
+  }
+
+  function renderWeak(cells) {
+    var items = [];
+    for (var i = 0; i < 81; i++) {
+      if (cells[i].lv === C.LEVEL.WEAK || cells[i].lv === C.LEVEL.SHAKY) {
+        var cc = C.cellOf(i);
+        items.push({ a: cc.a, b: cc.b, lv: cells[i].lv, med: cells[i].med || 0 });
+      }
+    }
+    if (!items.length) return;
+    items.sort(function (x, y) {
+      if (x.lv !== y.lv) return x.lv === C.LEVEL.WEAK ? -1 : 1;
+      return y.med - x.med;
+    });
+    var ul = $('weakList');
+    ul.innerHTML = '';
+    items.slice(0, 12).forEach(function (it) {
+      var li = document.createElement('li');
+      li.textContent = it.a + ' × ' + it.b + ' ＝ ' + (it.a * it.b);
+      ul.appendChild(li);
+    });
+    $('weakCard').hidden = false;
+  }
+
+  function renderCompare(list) {
+    if (list.length < 2) return;
+    var first = list[0], last = list[list.length - 1];
+    var diff = last.correct - first.correct;
+    var box = $('cmp');
+    box.innerHTML = '';
+    [['第一次答對', first.correct + ' 題'],
+     ['最近一次答對', last.correct + ' 題'],
+     ['進步', (diff >= 0 ? '+' : '') + diff + ' 題']].forEach(function (p) {
+      var d = document.createElement('div');
+      var t = document.createElement('div');
+      t.className = 'sub'; t.style.margin = '0'; t.textContent = p[0];
+      var v = document.createElement('div');
+      v.className = 'big'; v.textContent = p[1];
+      d.appendChild(t); d.appendChild(v);
+      box.appendChild(d);
+    });
+    $('cmpCard').hidden = false;
+  }
+
+  var url = window.TTD_GAS_URL + '?action=myrecord&cls=' + encodeURIComponent(classCode) +
+            '&seat=' + seat;
+  fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); })
+    .then(function (r) {
+      if (!r.ok) { $('sub').textContent = '讀不到資料（' + r.code + '）'; return; }
+      $('title').textContent = r.name ? (r.name + ' 的九九乘法') : (seat + ' 號的九九乘法');
+      $('sub').textContent = '做過 ' + r.diagnostics.length + ' 次診斷。綠色是已經很熟的。';
+      renderHeat(r.all);
+      renderWeak(r.all);
+      renderCompare(r.diagnostics);
+
+      $('dl').onclick = function () {
+        var blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = '我的九九乘法紀錄.json';
+        a.click();
+      };
+    })
+    .catch(function () { $('sub').textContent = '連不上伺服器。'; });
+})();
+</script>
+</body>
+</html>
