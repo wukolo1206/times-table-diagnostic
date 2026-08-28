@@ -6,10 +6,10 @@
 <title>九九乘法診斷</title>
 <link rel="stylesheet" href="style.css">
 <style>
-  .row-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .row-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; max-width: 460px; }
   .row-btn {
     background: #fff; border: 1px solid var(--line); color: var(--muted);
-    padding: 14px 6px; font-size: 17px;
+    padding: 16px 0; font-size: 20px; font-weight: 700;
   }
   .row-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
   button.small { font-size: 15px; padding: 8px 14px; }
@@ -36,12 +36,12 @@
 
   <div class="card" id="rangeCard" hidden>
     <div style="font-size:17px;font-weight:700;margin-bottom:4px">要測哪幾的乘法？</div>
-    <p class="sub" style="margin:0 0 10px">不用一次全測。點掉不想測的，只留要練的。</p>
+    <p class="sub" style="margin:0 0 10px">點選要測的數字，可以複選。</p>
     <div class="row-grid" id="rows"></div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="ghost small" data-preset="all">全部</button>
-      <button class="ghost small" data-preset="hard">只測 6～9</button>
-      <button class="ghost small" data-preset="none">全部清除</button>
+      <button class="ghost small" data-preset="all">全選</button>
+      <button class="ghost small" data-preset="hard">6～9</button>
+      <button class="ghost small" data-preset="none">清除</button>
     </div>
     <div style="margin-top:14px;font-size:17px" id="count">共 81 題</div>
     <div style="margin-top:14px">
@@ -128,10 +128,10 @@
     box.innerHTML = '';
     for (var a = 1; a <= 9; a++) {
       (function (a) {
-        selected[a] = true;
+        selected[a] = false;          // 預設全不選：點到的才測，而不是點掉不想測的
         var b = document.createElement('button');
-        b.className = 'row-btn on';
-        b.textContent = a + ' 的';
+        b.className = 'row-btn';
+        b.textContent = a;
         b.onclick = function () {
           selected[a] = !selected[a];
           b.classList.toggle('on', selected[a]);
@@ -151,7 +151,7 @@
 
   function updateCount() {
     var n = chosenRows().length * 9;
-    $('count').textContent = n === 0 ? '還沒選任何一列' : ('共 ' + n + ' 題');
+    $('count').textContent = n === 0 ? '請點選要測的數字' : ('共 ' + n + ' 題');
     $('start').disabled = (n === 0 || !picked);
   }
 

@@ -125,19 +125,24 @@ def test_index(pg):
     ck(pg.is_hidden('#rangeCard'), '未選座號時不顯示範圍選擇')
     pg.click('.seat-btn')
     ck(pg.is_visible('#rangeCard'), '選了座號後出現範圍選擇')
-    ck(pg.inner_text('#count') == '共 81 題', '預設全選 81 題')
-    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is False, '選了座號後可以開始')
+    ck('請點選' in pg.inner_text('#count'), '預設一個都沒選，要自己點')
+    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '沒點數字時不能開始')
+    ck(pg.eval_on_selector_all('.row-btn', 'e=>e.map(x=>x.textContent)') ==
+       ['1','2','3','4','5','6','7','8','9'], '按鈕只顯示數字')
+
+    pg.click('.row-btn')
+    ck(pg.inner_text('#count') == '共 9 題', '點一個數字是 9 題')
+    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is False, '點了就能開始')
+    pg.click('.row-btn')
+    ck('請點選' in pg.inner_text('#count'), '再點一次會取消選取')
 
     pg.click('[data-preset="hard"]')
-    ck(pg.inner_text('#count') == '共 36 題', '只測 6～9 是 36 題')
-    ck(pg.eval_on_selector_all('.row-btn.on', 'e=>e.length') == 4, '亮起 4 列')
+    ck(pg.inner_text('#count') == '共 36 題', '6～9 是 36 題')
+    ck(pg.eval_on_selector_all('.row-btn.on', 'e=>e.length') == 4, '亮起 4 個')
     pg.click('[data-preset="none"]')
-    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '一列都沒選時不能開始')
-    ck('還沒選' in pg.inner_text('#count'), '沒選時提示要選')
-    pg.click('.row-btn')
-    ck(pg.inner_text('#count') == '共 9 題', '點一列是 9 題')
+    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '清除後不能開始')
     pg.click('[data-preset="all"]')
-    ck(pg.inner_text('#count') == '共 81 題', '按全部回到 81 題')
+    ck(pg.inner_text('#count') == '共 81 題', '全選是 81 題')
 
 
 def test_diagnose(pg):

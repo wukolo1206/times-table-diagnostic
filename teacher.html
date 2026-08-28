@@ -192,18 +192,27 @@
     var g = group();
     var idx = C.cellIndex(a, b);
     var weak = [], shaky = [], none = [];
+    var fluent = [];
     data.students.forEach(function (s) {
       var c = recolor(s[g])[idx];
       var who = s.name ? (s.seat + ' ' + s.name) : (s.seat + ' 號');
+      // 一律附上思考時間，老師才看得出「答對但慢」慢到什麼程度
+      var t = (c.med === null || c.med === undefined) ? '答錯' : (c.med / 1000).toFixed(1) + ' 秒';
       if (c.n === 0) none.push(who);
-      else if (c.lv === C.LEVEL.WEAK) weak.push(who + '（' + c.n + ' 次）');
-      else if (c.lv === C.LEVEL.SHAKY) shaky.push(who + '（' + Math.round(c.med) + ' 毫秒）');
+      else if (c.lv === C.LEVEL.WEAK) weak.push(who + '（' + t + '）');
+      else if (c.lv === C.LEVEL.SHAKY) shaky.push(who + '（' + t + '）');
+      else fluent.push(who + '（' + t + '）');
     });
     $('detailTitle').textContent = a + ' × ' + b + ' ＝ ' + (a * b);
     $('detailBody').innerHTML =
-      '<strong>不會（' + weak.length + '）</strong><br>' + (weak.join('、') || '無') +
-      '<br><br><strong>不熟（' + shaky.length + '）</strong><br>' + (shaky.join('、') || '無') +
-      '<br><br><span class="sub">沒有資料：' + (none.join('、') || '無') + '</span>';
+      '<strong style="color:var(--weak)">不會（' + weak.length + '）</strong><br>' +
+      (weak.join('、') || '無') +
+      '<br><br><strong style="color:#b08a1e">不熟（' + shaky.length + '）</strong><br>' +
+      (shaky.join('、') || '無') +
+      '<br><br><strong style="color:#4a8a52">很熟（' + fluent.length + '）</strong><br>' +
+      (fluent.join('、') || '無') +
+      '<br><br><span class="sub">括號內是思考時間（從題目出現到開始寫答案）。' +
+      '沒有資料：' + (none.join('、') || '無') + '</span>';
     $('detailCard').hidden = false;
     $('detailCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
