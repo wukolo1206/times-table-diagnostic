@@ -47,7 +47,7 @@
     <h1>準備開始</h1>
     <p class="sub" id="who"></p>
     <p class="intro">
-      這裡有 81 題乘法。<br>
+      這裡有 <strong id="introTotal">81</strong> 題乘法（<span id="introRows"></span>）。<br>
       <strong>看到題目就直接寫出答案</strong>，不用算，想不出來就跳過。<br>
       我們想知道你哪幾題還不熟，答錯沒有關係。
     </p>
@@ -104,10 +104,16 @@
   var classCode = qs('cls');
   var seat = Number(qs('seat'));
   var isProxy = qs('proxy') === '1';
+  var rows = C.parseRows(qs('r'));          // 沒帶就是全部 81 題（相容舊網址）
+  var TOTAL = rows.length * 9;
+  // 題數少的時候不插中場休息，反而打斷節奏
+  var BREAK_AT = TOTAL >= 40 ? Math.floor(TOTAL / 2) : -1;
   var name = sessionStorage.getItem('ttd_name') || '';
   if (!classCode || !seat) { location.href = 'index.html'; return; }
   $('who').textContent = (name ? (name + '（' + seat + ' 號）') : (seat + ' 號')) +
                          (isProxy ? '　※老師代作答' : '');
+  $('introTotal').textContent = TOTAL;
+  $('introRows').textContent = rows.length === 9 ? '全部' : (rows.join('、') + ' 的乘法');
 
   var uploader = N.createUploader({
     url: window.TTD_GAS_URL,
@@ -127,7 +133,8 @@
   function newState() {
     return {
       sessionId: uuid(), classCode: classCode, seat: seat,
-      cells: C.shuffle(C.allCells()), idx: 0, results: [], baselineMs: null,
+      cells: C.shuffle(C.cellsForRows(rows)), idx: 0, results: [], baselineMs: null,
+      rows: rows,
       breakDone: false, startedAt: new Date().toISOString()
     };
   }
@@ -181,16 +188,16 @@
 
   function nextQuestion() {
     // 中場休息（8.1）
-    if (state.idx === 41 && !state.breakDone) {
+    if (BREAK_AT > 0 && state.idx === BREAK_AT && !state.breakDone) {
       state.breakDone = true;
       Q.saveProgress(state);
       show('breakStage');
       return;
     }
-    if (state.idx >= 81) { finishSession('complete'); return; }
+    if (state.idx >= state.cells.length) { finishSession('complete'); return; }
 
     var cell = state.cells[state.idx];
-    $('prog').textContent = (state.idx + 1) + ' / 81';
+    $('prog').textContent = (state.idx + 1) + ' / ' + state.cells.length;
     $('q').textContent = cell.a + ' × ' + cell.b;
     $('ans').textContent = ' ';
     $('fb').textContent = '';
@@ -260,7 +267,8 @@
       status: status,
       answeredAt: state.startedAt,
       config: { sv: 1, thresholdMs: C.DEFAULT_THRESHOLD_MS, limitSec: null,
-                baselineMs: state.baselineMs, proxy: isProxy ? 1 : 0 },
+                baselineMs: state.baselineMs, proxy: isProxy ? 1 : 0,
+                rows: C.formatRows(state.rows || rows) },
       detail: C.encodeDetail(state.results)
     };
 
@@ -296,7 +304,7 @@
   /* ---- 續作（8.1） ---- */
   var saved = Q.loadProgress();
   if (saved && saved.classCode === classCode && saved.seat === seat &&
-      saved.idx > 0 && saved.idx < 81) {
+      saved.cells && saved.idx > 0 && saved.idx < saved.cells.length) {
     if (confirm('要繼續上次的診斷嗎？已經完成 ' + saved.idx + ' 題。\n\n按「取消」重新開始。')) {
       state = saved;
       show('quizStage');

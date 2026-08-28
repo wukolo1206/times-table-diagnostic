@@ -3,7 +3,7 @@
  * 不要手動編輯這個檔案。改 fact-core.js 之後執行：
  *     python sync-core-to-gas.py
  *
- * 來源雜湊：bc9f4ca3da47aed0
+ * 來源雜湊：f10e75bb8c51e31f
  */
 var FactCore = (function () {
   'use strict';
@@ -258,6 +258,45 @@ var FactCore = (function () {
       .slice(0, n || 10);
   }
 
+  /* ---- 自選測驗範圍 ---- */
+
+  /**
+   * 由「要測哪幾的乘法」產生題目清單。
+   * rows 是被乘數清單（1–9），每一列配 1–9 共 9 題。
+   * 7×8 與 8×7 是不同格（D5），所以選 7 只會出 7×□，不會出 □×7。
+   */
+  function cellsForRows(rows) {
+    var seen = {}, out = [];
+    rows.forEach(function (a) {
+      assertOperand(a, '被乘數');
+      if (seen[a]) return;
+      seen[a] = 1;
+      for (var b = 1; b <= 9; b++) out.push({ a: a, b: b });
+    });
+    out.sort(function (x, y) { return x.a - y.a || x.b - y.b; });
+    return out;
+  }
+
+  /** 網址字串 → 列清單。空的視為全選（向後相容舊網址）。 */
+  function parseRows(str) {
+    if (str === undefined || str === null || String(str) === '') {
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    }
+    var seen = {}, out = [];
+    String(str).split('').forEach(function (ch) {
+      var n = Number(ch);
+      if (!Number.isInteger(n) || n < 1 || n > 9 || seen[n]) return;
+      seen[n] = 1;
+      out.push(n);
+    });
+    return out.sort(function (x, y) { return x - y; });
+  }
+
+  /** 列清單 → 網址字串。 */
+  function formatRows(rows) {
+    return parseRows(rows.join('')).join('');
+  }
+
   /* ---- 反應時間與旗標（設計文件 4.4） ---- */
 
   /**
@@ -392,6 +431,9 @@ var FactCore = (function () {
     SPARSE_RATIO: SPARSE_RATIO,
 
     isValid: isValid,
+    cellsForRows: cellsForRows,
+    parseRows: parseRows,
+    formatRows: formatRows,
     evaluateTiming: evaluateTiming,
     validateSession: validateSession,
     sanitizeCell: sanitizeCell,

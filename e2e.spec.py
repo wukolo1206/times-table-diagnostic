@@ -48,6 +48,30 @@ def route_config(route, request):
                   body="window.TTD_GAS_URL = '%s';" % FAKE_GAS)
 
 
+def contract_errors(p):
+    """比照 fact-core.js 的 validateSession 檢查關鍵欄位。
+    之前這裡直接回 ok:true，等於沒驗證，所以「小數毫秒被伺服器退件」漏掉了。"""
+    e = []
+    if not isinstance(p.get('detail'), list) or not p['detail']:
+        e.append('detail 不是非空陣列'); return e
+    for i, r in enumerate(p['detail']):
+        if not isinstance(r, list) or len(r) != 6:
+            e.append('第 %d 題不是六元素' % (i+1)); continue
+        a, b, ans, ok, ms, flags = r
+        if not (isinstance(a, int) and 1 <= a <= 9): e.append('第 %d 題 a 不合法' % (i+1))
+        if not (isinstance(b, int) and 1 <= b <= 9): e.append('第 %d 題 b 不合法' % (i+1))
+        if ok not in (0, 1, None): e.append('第 %d 題 ok 不合法' % (i+1))
+        if ms is not None and not (isinstance(ms, int) and 0 <= ms <= 120000):
+            e.append('第 %d 題 ms 不是 0-120000 的整數（得到 %r）' % (i+1, ms))
+        if not (isinstance(flags, int) and 0 <= flags <= 31):
+            e.append('第 %d 題 flags 不合法' % (i+1))
+    if p.get('mode') not in ('diagnostic', 'practice', 'sprint'): e.append('mode 不合法')
+    if p.get('context') not in ('class', 'home'): e.append('context 不合法')
+    if p.get('status') not in ('complete', 'partial'): e.append('status 不合法')
+    if not isinstance(p.get('seat'), int) or p['seat'] < 1: e.append('seat 不合法')
+    return e
+
+
 def route_gas(route, request):
     if request.method == 'POST':
         posted.append(json.loads(request.post_data))
@@ -98,82 +122,103 @@ def test_index(pg):
     pg.wait_for_selector('.seat-btn')
     seats = pg.eval_on_selector_all('.seat-btn', 'e=>e.map(x=>x.textContent)')
     ck(seats == ['1 小明', '2 小華'], '名單由 GAS 帶入，座號與姓名都顯示')
-    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '未選座號時不能開始')
+    ck(pg.is_hidden('#rangeCard'), '未選座號時不顯示範圍選擇')
     pg.click('.seat-btn')
+    ck(pg.is_visible('#rangeCard'), '選了座號後出現範圍選擇')
+    ck(pg.inner_text('#count') == '共 81 題', '預設全選 81 題')
     ck(pg.eval_on_selector('#start', 'e=>e.disabled') is False, '選了座號後可以開始')
+
+    pg.click('[data-preset="hard"]')
+    ck(pg.inner_text('#count') == '共 36 題', '只測 6～9 是 36 題')
+    ck(pg.eval_on_selector_all('.row-btn.on', 'e=>e.length') == 4, '亮起 4 列')
+    pg.click('[data-preset="none"]')
+    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '一列都沒選時不能開始')
+    ck('還沒選' in pg.inner_text('#count'), '沒選時提示要選')
+    pg.click('.row-btn')
+    ck(pg.inner_text('#count') == '共 9 題', '點一列是 9 題')
+    pg.click('[data-preset="all"]')
+    ck(pg.inner_text('#count') == '共 81 題', '按全部回到 81 題')
 
 
 def test_diagnose(pg):
-    print('== diagnose.html')
-    pg.goto(BASE + 'diagnose.html?cls=TEST01&seat=1')
+    print('== diagnose.html（只測 7 的乘法，9 題，跑完整場）')
+    posted.clear()
+    pg.goto(BASE + 'diagnose.html?cls=TEST01&seat=1&r=7')
     pg.evaluate('localStorage.clear()')
     pg.reload()
     pg.wait_for_selector('#toBaseline')
     ck(pg.is_visible('#introStage'), '先出現說明頁')
+    ck(pg.inner_text('#introTotal') == '9', '說明頁題數跟著範圍走')
+    ck('7 的乘法' in pg.inner_text('#introRows'), '說明頁寫出測哪幾的乘法')
 
     pg.click('#toBaseline')
     pg.wait_for_selector('#baselineStage:not([hidden])')
-    ck(pg.is_visible('#dot'), '進入手速校準')
-
     for i in range(5):
         pg.wait_for_selector('.dot.go', timeout=8000)
         pg.click('#dot')
-        # 按下後圓圈會立刻變回灰色；不等它就會把同一次誤當成下一次
         if i < 4:
             pg.wait_for_selector('.dot:not(.go)', timeout=3000)
     pg.wait_for_selector('#quizStage:not([hidden])', timeout=8000)
-    ck(True, '校準完成後進入作答')
 
-    ck(pg.eval_on_selector('#prog', 'e=>e.textContent') == '1 / 81', '進度顯示 1 / 81')
+    ck(pg.inner_text('#prog') == '1 / 9', '進度顯示 1 / 9')
     ck(pg.eval_on_selector_all('.pad button', 'e=>e.length') == 12, '數字鍵盤有 12 顆鍵')
     ck('倒數' not in pg.content(), '診斷模式不顯示倒數（8.1）')
-
-    q = pg.eval_on_selector('#q', 'e=>e.textContent')
-    a, b = [int(x) for x in q.replace('×', ' ').split()]
-    # 99 一定是錯的（九九乘法最大 81），且兩位數會自動送出
-    pg.click('.pad button:text-is("9")')
-    pg.click('.pad button:text-is("9")')
-    pg.wait_for_selector('.fb.no', timeout=3000)
-    fb = pg.eval_on_selector('#fb', 'e=>e.textContent')
-    ck(fb == '✗', '答錯只顯示叉，不顯示正確答案（8.1）')
-    ck(str(a * b) != fb, '回饋文字裡沒有正確答案')
-
-    pg.wait_for_function('document.getElementById("prog").textContent === "2 / 81"',
-                         timeout=3000)
-    ck(True, '0.4 秒後自動換到第 2 題')
-
-    # 一位數 + 送出（第 2 題）——這條路徑原本沒被測到，導致送出鍵不明顯的問題漏掉
     ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is True,
        '還沒輸入時送出鍵是停用的')
-    pg.click('.pad button:text-is("7")')
-    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is False,
-       '輸入一位數後送出鍵可按')
+
+    # 第 1 題故意答錯（99 一定錯，兩位數自動送出）
+    q = pg.inner_text('#q')
+    a, b = [int(x) for x in q.replace('×', ' ').split()]
+    ck(a == 7, '題目確實只出 7 的乘法')
+    pg.click('.pad button:text-is("9")')
     ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.classList.contains("go")') is True,
-       '輸入一位數後送出鍵會亮起（提示學生要按這裡）')
-    pg.click('.pad button:text-is("送出")')
-    pg.wait_for_function('document.getElementById("prog").textContent === "3 / 81"',
-                         timeout=4000)
-    ck(True, '一位數按送出可以進到下一題')
-    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is True,
-       '換題後送出鍵回到停用')
+       '輸入一位數後送出鍵會亮起（提示要按這裡）')
+    pg.click('.pad button:text-is("9")')
+    pg.wait_for_selector('.fb.no', timeout=3000)
+    ck(pg.inner_text('#fb') == '✗', '答錯只顯示叉，不顯示正確答案（8.1）')
+    pg.wait_for_function('document.getElementById("prog").textContent === "2 / 9"', timeout=3000)
 
     prog = pg.evaluate('JSON.parse(localStorage.getItem("ttd_progress_v1"))')
-    ck(prog['idx'] == 2, '每題答完就存進度（8.1 中斷續作）')
-    ck(len(prog['results']) == 2 and prog['results'][0]['ok'] == 0, '存下來的結果含對錯')
-    ck(prog['results'][0]['ms'] is not None, '存下來的結果含反應毫秒')
-    # 真實瀏覽器的 performance.now() 是小數；非整數會被伺服器以 BAD_DETAIL 退回
+    ck(prog['idx'] == 1, '每題答完就存進度（8.1 中斷續作）')
+    ck(prog['baselineMs'] is not None, '手速基準有存進場次（4.5）')
+    ck(len(prog['cells']) == 9, '題目清單只有 9 題')
     ck(all(isinstance(r['ms'], int) for r in prog['results'] if r['ms'] is not None),
        '反應毫秒是整數（小數會讓整份上傳被退回）')
-    ck(prog['baselineMs'] is not None, '手速基準有存進場次（4.5）')
-    ck(len(prog['cells']) == 81, '81 格全在題目清單裡')
-    ck(len(set((c['a'], c['b']) for c in prog['cells'])) == 81, '81 格不重複')
 
-    # 續作：重新載入應該問要不要繼續
+    # 續作
     pg.on('dialog', lambda d: d.accept())
     pg.reload()
     pg.wait_for_selector('#quizStage:not([hidden])', timeout=5000)
-    ck(pg.eval_on_selector('#prog', 'e=>e.textContent') == '3 / 81',
-       '重新載入後從第 3 題續作，不用重做')
+    ck(pg.inner_text('#prog') == '2 / 9', '重新載入後從第 2 題續作')
+
+    # 剩下的照實答完，第 2 題用一位數答案測送出鍵
+    for n in range(1, 9):
+        pg.wait_for_function('document.getElementById("prog").textContent === "%d / 9"' % (n + 1),
+                             timeout=6000)
+        a, b = [int(x) for x in pg.inner_text('#q').replace('×', ' ').split()]
+        ans = str(a * b)
+        for d in ans:
+            pg.click('.pad button:text-is("%s")' % d)
+        if len(ans) == 1:
+            pg.click('.pad button:text-is("送出")')
+
+    pg.wait_for_selector('#doneStage:not([hidden])', timeout=15000)
+    ck('共 9 題' in pg.inner_text('#doneSummary'), '完成畫面題數正確')
+
+    pg.wait_for_function('document.getElementById("upMsg").textContent.indexOf("上傳中") === -1',
+                         timeout=20000)
+    ck(pg.inner_text('#upMsg') == '成績已上傳。', '上傳成功訊息')
+
+    # 上傳內容必須通過資料契約——這一關是為了擋「伺服器退件」那類問題
+    ck(len(posted) == 1, '整場只送一次（D9），實際 %d 次' % len(posted))
+    if posted:
+        pl = posted[0]
+        errs = contract_errors(pl)
+        ck(not errs, '上傳內容符合資料契約：' + ('; '.join(errs[:3]) if errs else 'OK'))
+        ck(len(pl['detail']) == 9, '上傳 9 題')
+        ck(pl['status'] == 'complete', '狀態為 complete')
+        ck(pl['config'].get('rows') == '7', '設定裡記錄了測驗範圍')
+        ck(all(r[0] == 7 for r in pl['detail']), '上傳的題目都是 7 的乘法')
 
 
 def test_me(pg):

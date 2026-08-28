@@ -547,6 +547,37 @@ eq('ms 一律為整數（四捨五入）',
 eq('小數也能正確觸發過快判定',
    C.evaluateTiming(timing({ shownAt: 1000.0, firstKeyAt: 1249.4 })).flags, C.FLAG.TOO_FAST);
 
+
+/* =============================================================
+ * 8. 自選測驗範圍
+ * =========================================================== */
+group('8. 自選測驗範圍');
+
+eq('全選 1-9 就是 81 格', C.cellsForRows([1,2,3,4,5,6,7,8,9]).length, 81);
+eq('只選 6-9 是 36 題', C.cellsForRows([6,7,8,9]).length, 36);
+eq('只選一列是 9 題', C.cellsForRows([7]).length, 9);
+eq('選 7 出的都是 7 開頭', (function () {
+  return C.cellsForRows([7]).every(function (c) { return c.a === 7; });
+})(), true);
+eq('每列都配 1-9', (function () {
+  return C.cellsForRows([7]).map(function (c) { return c.b; }).sort(function(x,y){return x-y;}).join(',');
+})(), '1,2,3,4,5,6,7,8,9');
+eq('順序照列排，不打亂（打亂交給 shuffle）', (function () {
+  var cs = C.cellsForRows([9, 6]);
+  return [cs[0].a, cs[9].a];
+})(), [6, 9]);
+eq('重複的列只算一次', C.cellsForRows([7, 7, 8]).length, 18);
+eq('空陣列回傳空', C.cellsForRows([]).length, 0);
+throws('列超出 1-9 應拋錯', function () { C.cellsForRows([0]); });
+throws('非整數應拋錯', function () { C.cellsForRows([1.5]); });
+
+eq('parseRows 解析網址字串', C.parseRows('6789'), [6, 7, 8, 9]);
+eq('parseRows 去重並排序', C.parseRows('9876'), [6, 7, 8, 9]);
+eq('parseRows 忽略非數字與 0', C.parseRows('6a7,0'), [6, 7]);
+eq('parseRows 空字串視為全選', C.parseRows(''), [1,2,3,4,5,6,7,8,9]);
+eq('parseRows undefined 視為全選', C.parseRows(undefined), [1,2,3,4,5,6,7,8,9]);
+eq('formatRows 產生網址字串', C.formatRows([9, 6, 7]), '679');
+
 /* ===== 結果 ===== */
 console.log('\n' + '='.repeat(50));
 console.log('  PASS ' + pass + '   FAIL ' + fail);
