@@ -23,6 +23,13 @@
   }
   .pad button.wide { font-size: 20px; }
   .pad button:active { background: var(--line); }
+  /* 沒輸入時送出鍵是暗的，輸入一個數字後亮起來——
+     兩位數會自動送出，只有一位數需要按，所以要讓學生一眼看到該按哪 */
+  .pad button:disabled { background: #fbfaf8; color: #cdc8be; border-color: var(--line); }
+  .pad button.go {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    font-weight: 700; box-shadow: 0 0 0 3px rgba(63, 125, 140, .18);
+  }
   .dot {
     width: 170px; height: 170px; border-radius: 50%; margin: 20px auto;
     background: var(--unknown); display: flex; align-items: center;
@@ -132,6 +139,20 @@
 
   /* ---- 作答鍵盤 ---- */
   var current = null;
+  var submitBtn = null;
+
+  /**
+   * 送出鍵的狀態。
+   * 沒輸入 → 停用；輸入一位數 → 亮起（只有這時才需要按，兩位數會自動送出）。
+   * 兩者手感不同是刻意的：九九乘法答案多半兩位數，自動送出可省下 81 次點擊；
+   * 但一位數時一定要讓學生一眼看出該按哪裡，否則會卡住。
+   */
+  function updateSubmitBtn() {
+    if (!submitBtn) return;
+    var n = (current && !current.isDone()) ? current.value().length : 0;
+    submitBtn.disabled = (n === 0);
+    submitBtn.classList.toggle('go', n === 1);
+  }
 
   function buildPad() {
     var pad = $('pad');
@@ -141,11 +162,17 @@
         var b = document.createElement('button');
         b.textContent = label;
         if (label === '清除' || label === '送出') b.className = 'wide';
+        if (label === '送出') { submitBtn = b; b.disabled = true; }
         b.onclick = function () {
           if (!current || current.isDone()) return;
-          if (label === '清除') { $('ans').textContent = current.clear() || ' '; return; }
-          if (label === '送出') { current.submit(); return; }
-          $('ans').textContent = current.pressDigit(label) || ' ';
+          if (label === '清除') {
+            $('ans').textContent = current.clear() || ' ';
+          } else if (label === '送出') {
+            current.submit();
+          } else {
+            $('ans').textContent = current.pressDigit(label) || ' ';
+          }
+          updateSubmitBtn();
         };
         pad.appendChild(b);
       });
@@ -181,10 +208,12 @@
         else if (r.ok === 0) { $('fb').textContent = '✗'; $('fb').className = 'fb no'; }
         else { $('fb').textContent = '先跳過'; $('fb').className = 'fb'; }
 
+        updateSubmitBtn();
         setTimeout(nextQuestion, 400);
       }
     });
     current.start();
+    updateSubmitBtn();
   }
 
   $('resume').onclick = function () { show('quizStage'); nextQuestion(); };

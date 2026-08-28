@@ -3,7 +3,7 @@
  * 不要手動編輯這個檔案。改 fact-core.js 之後執行：
  *     python sync-core-to-gas.py
  *
- * 來源雜湊：4d1bfd1495da19e2
+ * 來源雜湊：bc9f4ca3da47aed0
  */
 var FactCore = (function () {
   'use strict';
@@ -274,7 +274,9 @@ var FactCore = (function () {
       return { ms: null, flags: 0 };
     }
 
-    var ms = t.firstKeyAt - t.shownAt;
+    // performance.now() 回傳小數（如 2140.4），但資料契約要求整數毫秒；
+    // 不在這裡取整的話，整份上傳會被伺服器以 BAD_DETAIL 退回。
+    var ms = Math.round(t.firstKeyAt - t.shownAt);
     var flags = 0;
 
     if (t.hidden) flags |= FLAG.HIDDEN;

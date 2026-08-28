@@ -142,10 +142,28 @@ def test_diagnose(pg):
                          timeout=3000)
     ck(True, '0.4 秒後自動換到第 2 題')
 
+    # 一位數 + 送出（第 2 題）——這條路徑原本沒被測到，導致送出鍵不明顯的問題漏掉
+    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is True,
+       '還沒輸入時送出鍵是停用的')
+    pg.click('.pad button:text-is("7")')
+    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is False,
+       '輸入一位數後送出鍵可按')
+    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.classList.contains("go")') is True,
+       '輸入一位數後送出鍵會亮起（提示學生要按這裡）')
+    pg.click('.pad button:text-is("送出")')
+    pg.wait_for_function('document.getElementById("prog").textContent === "3 / 81"',
+                         timeout=4000)
+    ck(True, '一位數按送出可以進到下一題')
+    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is True,
+       '換題後送出鍵回到停用')
+
     prog = pg.evaluate('JSON.parse(localStorage.getItem("ttd_progress_v1"))')
-    ck(prog['idx'] == 1, '每題答完就存進度（8.1 中斷續作）')
-    ck(len(prog['results']) == 1 and prog['results'][0]['ok'] == 0, '存下來的結果含對錯')
+    ck(prog['idx'] == 2, '每題答完就存進度（8.1 中斷續作）')
+    ck(len(prog['results']) == 2 and prog['results'][0]['ok'] == 0, '存下來的結果含對錯')
     ck(prog['results'][0]['ms'] is not None, '存下來的結果含反應毫秒')
+    # 真實瀏覽器的 performance.now() 是小數；非整數會被伺服器以 BAD_DETAIL 退回
+    ck(all(isinstance(r['ms'], int) for r in prog['results'] if r['ms'] is not None),
+       '反應毫秒是整數（小數會讓整份上傳被退回）')
     ck(prog['baselineMs'] is not None, '手速基準有存進場次（4.5）')
     ck(len(prog['cells']) == 81, '81 格全在題目清單裡')
     ck(len(set((c['a'], c['b']) for c in prog['cells'])) == 81, '81 格不重複')
@@ -154,8 +172,8 @@ def test_diagnose(pg):
     pg.on('dialog', lambda d: d.accept())
     pg.reload()
     pg.wait_for_selector('#quizStage:not([hidden])', timeout=5000)
-    ck(pg.eval_on_selector('#prog', 'e=>e.textContent') == '2 / 81',
-       '重新載入後從第 2 題續作，不用重做')
+    ck(pg.eval_on_selector('#prog', 'e=>e.textContent') == '3 / 81',
+       '重新載入後從第 3 題續作，不用重做')
 
 
 def test_me(pg):

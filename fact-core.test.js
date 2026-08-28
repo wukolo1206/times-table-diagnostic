@@ -539,6 +539,14 @@ eq('一位數答案不比對首位以外的字元',
 eq('答案為空字串時不誤判首鍵改動',
    C.evaluateTiming(timing({ finalAnswer: '' })).flags, 0);
 
+// performance.now() 回傳小數；ms 必須是整數，否則上傳會被 BAD_DETAIL 退回
+eq('小數時間戳產生整數 ms',
+   C.evaluateTiming(timing({ shownAt: 1000.7, firstKeyAt: 3200.4 })).ms, 2200);
+eq('ms 一律為整數（四捨五入）',
+   Number.isInteger(C.evaluateTiming(timing({ shownAt: 0.123, firstKeyAt: 1999.876 })).ms), true);
+eq('小數也能正確觸發過快判定',
+   C.evaluateTiming(timing({ shownAt: 1000.0, firstKeyAt: 1249.4 })).flags, C.FLAG.TOO_FAST);
+
 /* ===== 結果 ===== */
 console.log('\n' + '='.repeat(50));
 console.log('  PASS ' + pass + '   FAIL ' + fail);

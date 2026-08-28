@@ -277,7 +277,9 @@
       return { ms: null, flags: 0 };
     }
 
-    var ms = t.firstKeyAt - t.shownAt;
+    // performance.now() 回傳小數（如 2140.4），但資料契約要求整數毫秒；
+    // 不在這裡取整的話，整份上傳會被伺服器以 BAD_DETAIL 退回。
+    var ms = Math.round(t.firstKeyAt - t.shownAt);
     var flags = 0;
 
     if (t.hidden) flags |= FLAG.HIDDEN;
