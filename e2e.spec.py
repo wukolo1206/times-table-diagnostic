@@ -34,12 +34,13 @@ def ck(cond, name):
 
 
 def empty_cells():
-    return [{"n": 0, "correct": 0, "med": None, "lv": "unknown", "tent": False}
-            for _ in range(81)]
+    return [{"n": 0, "correct": 0, "med": None, "lv": "unknown", "tent": False,
+             "wrong": []} for _ in range(81)]
 
 
-def cell(lv, med=2000, n=3):
-    return {"n": n, "correct": n, "med": med, "lv": lv, "tent": n <= 2}
+def cell(lv, med=2000, n=3, wrong=None):
+    return {"n": n, "correct": n, "med": med, "lv": lv, "tent": n <= 2,
+            "wrong": wrong or []}
 
 
 def route_config(route, request):
@@ -99,7 +100,7 @@ def route_gas(route, request):
             body = {"ok": False, "code": "BAD_PIN", "left": 4}
         else:
             weak_cells = empty_cells()
-            weak_cells[C78] = cell("weak", 9000)
+            weak_cells[C78] = cell("weak", None, 3, [[49, "neighbor"], [15, "added"]])
             weak_cells[C69] = cell("shaky", 5000)
             good_cells = empty_cells()
             good_cells[C78] = cell("shaky", 4000)
@@ -108,9 +109,11 @@ def route_gas(route, request):
                     "seatOnly": False, "anomalies": [],
                     "students": [
                         {"seat": 1, "name": "小明", "base": weak_cells,
-                         "all": weak_cells, "sessions": 1, "stale": False},
+                         "all": weak_cells, "sessions": 1, "stale": False,
+                         "lastAt": "2026-09-01T01:00:00Z"},
                         {"seat": 2, "name": "小華", "base": good_cells,
-                         "all": good_cells, "sessions": 1, "stale": False}]}
+                         "all": good_cells, "sessions": 1, "stale": False,
+                         "lastAt": "2026-09-01T01:00:00Z"}]}
     else:
         body = {"ok": True}
     route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
@@ -322,6 +325,43 @@ def test_teacher(pg):
     pg.select_option('#grp', 'all')
     pg.wait_for_timeout(200)
     ck(pg.eval_on_selector_all('table.heat td', 'e=>e.length') == 81, '切到全量組仍正常')
+    pg.select_option('#grp', 'base')
+    pg.wait_for_timeout(200)
+
+    print('== 單一學生檢視與家長訊息')
+    ck(pg.is_visible('#onePanel'), '進入後就顯示單一學生檢視')
+    pg.select_option('#oneSeat', '1')
+    pg.wait_for_timeout(200)
+    ck('小明' in pg.inner_text('#oneSummary'), '顯示學生姓名')
+    ck('2026-09-01' in pg.inner_text('#oneSummary'), '顯示最近測驗日期')
+    ck('要加強的數字' in pg.inner_text('#oneRows'), '列出要加強的數字')
+    ck('7' in pg.inner_text('#oneRows') and '6' in pg.inner_text('#oneRows'),
+       '要加強的數字含 7 與 6')
+
+    items = pg.eval_on_selector_all('#oneList li', 'e=>e.map(x=>x.textContent)')
+    ck(len(items) == 2, '要練的算式列出 2 題')
+    ck(items[0].startswith('7 × 8 ＝ 56'), '不會的排最前面')
+    ck('寫成 49' in items[0] and '記混' in items[0], '寫出他填錯的數字與原因')
+
+    msg = pg.inner_text('#onePreview')
+    ck('【九九乘法診斷結果】小明' in msg, '家長訊息有標題與姓名')
+    ck('7 × 8 ＝ 56' in msg, '家長訊息列出要練的題目')
+    ck('寫成 49' in msg, '家長訊息說明錯在哪')
+    ck('念出聲音' in msg, '家長訊息附上具體做法')
+    ck('不會' not in msg, '家長訊息不出現「不會」字樣')
+
+    # 小華只有「答對但慢」，沒有答錯——訊息應該講時間，不該講寫錯什麼
+    pg.select_option('#oneSeat', '2')
+    pg.wait_for_timeout(200)
+    msg2 = pg.inner_text('#onePreview')
+    ck('小華' in msg2, '換人後訊息跟著換')
+    ck('寫成' not in msg2, '沒答錯的學生不會出現「寫成」')
+    ck('答案是對的' in msg2 and '秒' in msg2, '只有慢的學生，訊息說明是速度問題')
+
+    pg.click('#printAll')
+    pg.wait_for_timeout(300)
+    sheets = pg.eval_on_selector_all('#printArea .sheet', 'e=>e.length')
+    ck(sheets == 2, '列印全班產生 2 張，實際 %d' % sheets)
 
 
 def main():

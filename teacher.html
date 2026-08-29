@@ -19,6 +19,15 @@
   .bar select { width: auto; font-size: 16px; padding: 8px; }
   .namelist { font-size: 16px; line-height: 1.9; }
   .warn { background: #fff6f4; border-color: var(--weak); }
+  ul.weaklist { padding-left: 20px; line-height: 1.9; font-size: 16px; margin: 10px 0 0; }
+  #printArea { display: none; }
+  @media print {
+    body > .wrap { display: none; }
+    #printArea { display: block; }
+    .sheet { page-break-after: always; padding: 10mm; font-size: 13pt; line-height: 1.9; }
+    .sheet:last-child { page-break-after: auto; }
+    .sheet h2 { font-size: 16pt; margin: 0 0 8px; }
+  }
 </style>
 </head>
 <body>
@@ -66,6 +75,23 @@
           <h2 style="margin:0 0 10px" id="detailTitle"></h2>
           <div class="namelist" id="detailBody"></div>
         </div>
+
+        <div class="card">
+          <h2 style="margin:0 0 10px">看單一學生</h2>
+          <select id="oneSeat"></select>
+          <div id="onePanel" hidden style="margin-top:14px">
+            <div id="oneSummary" style="font-size:16px;line-height:1.9"></div>
+            <div id="oneRows" style="margin-top:10px;font-size:17px"></div>
+            <ul class="weaklist" id="oneList"></ul>
+            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+              <button id="copyOne" class="ghost small">複製給家長的訊息</button>
+              <button id="printOne" class="ghost small">列印這一位</button>
+              <button id="printAll" class="ghost small">列印全班</button>
+            </div>
+            <div class="msg" id="oneMsg"></div>
+            <pre id="onePreview" style="white-space:pre-wrap;background:#faf9f6;border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;font-family:inherit;font-size:15px;line-height:1.9"></pre>
+          </div>
+        </div>
       </div>
 
       <div class="side">
@@ -93,6 +119,8 @@
     </div>
   </div>
 </div>
+
+<div id="printArea"></div>
 
 <script src="fact-core.js"></script>
 <script src="config.js"></script>
@@ -188,6 +216,167 @@
     }
   }
 
+
+  /* ---- 單一學生檢視與家長訊息 ---- */
+
+  var NL = String.fromCharCode(10);   // 換行。直接寫跳脫字元容易在編輯過程被吃掉
+
+  // 錯誤型態的白話說法。核心只回代碼，用語一律留在這一層。
+  var ERR_TEXT = {};
+  ERR_TEXT[C.ERR.ADDED] = '把乘法當成加法算';
+  ERR_TEXT[C.ERR.NEIGHBOR] = '和隔壁那句口訣記混了';
+  ERR_TEXT[C.ERR.REVERSED] = '口訣是對的，但數字寫顛倒';
+  ERR_TEXT[C.ERR.OTHER_FACT] = '和別句口訣記混了';
+  ERR_TEXT[C.ERR.OFF_TEN] = '差了 10，可能是進位或位值';
+
+  function studentOf(seat) {
+    for (var i = 0; i < data.students.length; i++) {
+      if (Number(data.students[i].seat) === Number(seat)) return data.students[i];
+    }
+    return null;
+  }
+
+  function cellsOf(stu) { return recolor(stu[group()]); }
+
+  function countLevels(cells) {
+    var c = { fluent: 0, shaky: 0, weak: 0, none: 0 };
+    cells.forEach(function (x) {
+      if (x.n === 0) c.none++;
+      else if (x.lv === C.LEVEL.WEAK) c.weak++;
+      else if (x.lv === C.LEVEL.SHAKY) c.shaky++;
+      else c.fluent++;
+    });
+    return c;
+  }
+
+  /** 組出可以直接貼進 LINE 或列印的家長訊息。 */
+  function parentMessage(stu) {
+    var cells = cellsOf(stu);
+    var cnt = countLevels(cells);
+    var list = C.weakList(cells, 8);
+    var who = stu.name || (stu.seat + ' 號');
+    var date = stu.lastAt ? String(stu.lastAt).slice(0, 10) : '';
+
+    var L = [];
+    L.push('【九九乘法診斷結果】' + who);
+    if (date) L.push('測驗日期：' + date);
+    L.push('');
+    L.push('目前狀況');
+    L.push('　已經很熟 ' + cnt.fluent + ' 題　需要再快一點 ' + cnt.shaky +
+           ' 題　還要多練 ' + cnt.weak + ' 題');
+
+    if (!list.length) {
+      L.push('');
+      L.push(who + '測到的部分都已經很熟了，可以再測其他範圍。');
+      return L.join(NL);
+    }
+
+    L.push('');
+    L.push('在家可以先練這幾題');
+    list.forEach(function (w) {
+      L.push('　' + w.a + ' × ' + w.b + ' ＝ ' + (w.a * w.b));
+    });
+
+    // 有錯誤型態的才寫，沒有就不硬湊
+    var notes = [];
+    list.forEach(function (w) {
+      (w.wrong || []).forEach(function (pair) {
+        var t = ERR_TEXT[pair[1]];
+        if (!t) return;
+        notes.push('　' + w.a + ' × ' + w.b + ' 寫成 ' + pair[0] + '，' + t + '。');
+      });
+      if (w.lv === C.LEVEL.SHAKY && w.med) {
+        notes.push('　' + w.a + ' × ' + w.b + ' 答案是對的，但想了 ' +
+                   (w.med / 1000).toFixed(1) + ' 秒，還不夠熟。');
+      }
+    });
+    if (notes.length) {
+      L.push('');
+      L.push('老師的觀察');
+      notes.slice(0, 5).forEach(function (n) { L.push(n); });
+    }
+
+    L.push('');
+    L.push('建議做法');
+    L.push('　每天三分鐘，把上面的題目念出聲音來（例如「七八五十六」）。');
+    L.push('　念比默想有效，不用寫，念熟了速度自然就上來。');
+    return L.join(NL);
+  }
+
+  function renderOne() {
+    var stu = studentOf($('oneSeat').value);
+    if (!stu) { $('onePanel').hidden = true; return; }
+    $('onePanel').hidden = false;
+
+    var cells = cellsOf(stu);
+    var cnt = countLevels(cells);
+    $('oneSummary').innerHTML =
+      '<strong>' + (stu.name || (stu.seat + ' 號')) + '</strong>　' +
+      '很熟 ' + cnt.fluent + '　不熟 ' + cnt.shaky + '　不會 ' + cnt.weak +
+      '　沒測過 ' + cnt.none +
+      (stu.lastAt ? '<br><span class="sub">最近測驗：' + String(stu.lastAt).slice(0, 10) + '</span>' : '');
+
+    var rows = C.rowsToPractice(cells);
+    $('oneRows').innerHTML = rows.length
+      ? '<strong>要加強的數字：</strong>' + rows.map(function (r) {
+          return r.a + '（' + (r.weak ? '不會 ' + r.weak : '') +
+                 (r.weak && r.shaky ? '、' : '') + (r.shaky ? '不熟 ' + r.shaky : '') + '）';
+        }).join('　')
+      : '<span class="sub">測到的部分都很熟了。</span>';
+
+    var ul = $('oneList');
+    ul.innerHTML = '';
+    C.weakList(cells, 12).forEach(function (w) {
+      var li = document.createElement('li');
+      var why = (w.wrong || []).map(function (pr) {
+        return '寫成 ' + pr[0] + '（' + (ERR_TEXT[pr[1]] || '看不出型態') + '）';
+      }).join('；');
+      li.textContent = w.a + ' × ' + w.b + ' ＝ ' + (w.a * w.b) +
+        '　' + (w.lv === C.LEVEL.WEAK ? '不會' : '不熟') +
+        (w.med ? '（' + (w.med / 1000).toFixed(1) + ' 秒）' : '') +
+        (why ? '　' + why : '');
+      ul.appendChild(li);
+    });
+
+    $('onePreview').textContent = parentMessage(stu);
+    $('oneMsg').textContent = '';
+  }
+
+  $('copyOne').onclick = function () {
+    var txt = $('onePreview').textContent;
+    var done = function () { $('oneMsg').textContent = '已複製，可以直接貼到 LINE 或聯絡簿。'; };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(done, function () {
+        $('oneMsg').textContent = '複製失敗，請手動選取下方文字。';
+      });
+    } else {
+      $('oneMsg').textContent = '這個瀏覽器不支援自動複製，請手動選取下方文字。';
+    }
+  };
+
+  function printSheets(students) {
+    $('printArea').innerHTML = students.map(function (stu) {
+      var body = parentMessage(stu).split(NL).map(function (l) {
+        return l === '' ? '<br>' : '<div>' + l.replace(/</g, '&lt;') + '</div>';
+      }).join('');
+      return '<div class="sheet">' + body + '</div>';
+    }).join('');
+    window.print();
+  }
+
+  $('printOne').onclick = function () {
+    var stu = studentOf($('oneSeat').value);
+    if (stu) printSheets([stu]);
+  };
+  $('printAll').onclick = function () {
+    // 只印有資料的，沒測過的印出來也沒意義
+    var withData = data.students.filter(function (s) { return s.sessions > 0; });
+    if (!withData.length) { $('oneMsg').textContent = '目前還沒有人有資料。'; return; }
+    printSheets(withData);
+  };
+
+  $('oneSeat').onchange = renderOne;
+
   function showDetail(a, b) {
     var g = group();
     var idx = C.cellIndex(a, b);
@@ -258,15 +447,18 @@
         $('cname').textContent = r.className;
         $('thr').value = String(r.thresholdMs);
 
-        var sel = $('proxySeat');
-        sel.innerHTML = '';
-        r.students.forEach(function (s) {
-          var o = document.createElement('option');
-          o.value = s.seat;
-          o.textContent = s.name ? (s.seat + ' ' + s.name) : (s.seat + ' 號');
-          sel.appendChild(o);
+        ['proxySeat', 'oneSeat'].forEach(function (id) {
+          var sel = $(id);
+          sel.innerHTML = '';
+          r.students.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s.seat;
+            o.textContent = s.name ? (s.seat + ' ' + s.name) : (s.seat + ' 號');
+            sel.appendChild(o);
+          });
         });
         render();
+        renderOne();
       })
       .catch(function () {
         $('loginMsg').className = 'msg err';
@@ -280,8 +472,8 @@
     if (!classCode || !pin) { $('loginMsg').textContent = '請填班級代碼與 PIN。'; return; }
     load();
   };
-  $('grp').onchange = render;
-  $('thr').onchange = render;
+  $('grp').onchange = function () { render(); renderOne(); };
+  $('thr').onchange = function () { render(); renderOne(); };
   $('csv').onclick = exportCsv;
 
   $('proxyGo').onclick = function () {

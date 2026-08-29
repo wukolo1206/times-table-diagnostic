@@ -134,13 +134,13 @@ eq('median 不改動原陣列', (function () {
 })(), '3,1,2');
 
 eq('無資料 → 未測', C.aggregateCell([], T),
-   { n: 0, correct: 0, med: null, lv: C.LEVEL.UNKNOWN, tent: false });
+   { n: 0, correct: 0, med: null, lv: C.LEVEL.UNKNOWN, tent: false, wrong: [] });
 
 eq('n=1 答對快 → 熟練且標暫定（D13）', C.aggregateCell([att(1, 1200)], T),
-   { n: 1, correct: 1, med: 1200, lv: C.LEVEL.FLUENT, tent: true });
+   { n: 1, correct: 1, med: 1200, lv: C.LEVEL.FLUENT, tent: true, wrong: [] });
 
 eq('n=1 答錯 → 不會且標暫定', C.aggregateCell([att(0, 3000)], T),
-   { n: 1, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: true });
+   { n: 1, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: true, wrong: [] });
 
 eq('n=2 → 仍標暫定', C.aggregateCell([att(1, 1000), att(1, 1400)], T).tent, true);
 eq('n=3 → 不標暫定', C.aggregateCell([att(1, 1000), att(1, 1400), att(1, 1200)], T).tent, false);
@@ -577,6 +577,110 @@ eq('parseRows 忽略非數字與 0', C.parseRows('6a7,0'), [6, 7]);
 eq('parseRows 空字串視為全選', C.parseRows(''), [1,2,3,4,5,6,7,8,9]);
 eq('parseRows undefined 視為全選', C.parseRows(undefined), [1,2,3,4,5,6,7,8,9]);
 eq('formatRows 產生網址字串', C.formatRows([9, 6, 7]), '679');
+
+
+/* =============================================================
+ * 9. 錯誤型態分析
+ * =========================================================== */
+group('9. 錯誤型態分析');
+
+var E = C.ERR;
+
+eq('答對不算錯誤型態', C.classifyError(7, 8, 56), null);
+eq('沒作答不算', C.classifyError(7, 8, null), null);
+
+// 用加的：7×8 填 15
+eq('7×8 填 15 → 用加法', C.classifyError(7, 8, 15), E.ADDED);
+eq('3×4 填 7 → 用加法', C.classifyError(3, 4, 7), E.ADDED);
+
+// 背到隔壁句：同一列的前後一句
+eq('7×8 填 49（＝7×7）→ 隔壁句', C.classifyError(7, 8, 49), E.NEIGHBOR);
+eq('7×8 填 63（＝7×9）→ 隔壁句', C.classifyError(7, 8, 63), E.NEIGHBOR);
+eq('7×8 填 48（＝6×8）→ 隔壁句', C.classifyError(7, 8, 48), E.NEIGHBOR);
+eq('7×8 填 64（＝8×8）→ 隔壁句', C.classifyError(7, 8, 64), E.NEIGHBOR);
+
+// 數字寫顛倒：56 → 65
+eq('7×8 填 65 → 數字顛倒', C.classifyError(7, 8, 65), E.REVERSED);
+eq('2×7 填 41（14 顛倒）→ 數字顛倒', C.classifyError(2, 7, 41), E.REVERSED);
+eq('一位數答案不會被判顛倒', C.classifyError(2, 3, 6), null);
+
+// 混到別句口訣（非相鄰）
+eq('7×8 填 54（＝6×9）→ 混到別句', C.classifyError(7, 8, 54), E.OTHER_FACT);
+eq('9×6 填 56（＝7×8）→ 混到別句', C.classifyError(9, 6, 56), E.OTHER_FACT);
+
+// 差 10：位值或進位
+eq('7×8 填 46 → 差十', C.classifyError(7, 8, 46), E.OFF_TEN);
+eq('7×8 填 66 → 差十', C.classifyError(7, 8, 66), E.OFF_TEN);
+
+// 認不出型態
+eq('7×8 填 37 → 看不出型態', C.classifyError(7, 8, 37), E.UNKNOWN);
+
+// 優先序：加法優先於其他（3×3 填 6 既是 a+b 也是 2×3）
+eq('3×3 填 6 → 判為用加法（優先序）', C.classifyError(3, 3, 6), E.ADDED);
+
+// 聚合時要把錯誤型態帶出來
+eq('聚合會收集錯誤答案與型態', (function () {
+  var r = C.aggregateCell([
+    { ok: 0, ms: 3000, flags: 0, ans: 49 },
+    { ok: 0, ms: 3000, flags: 0, ans: 15 }
+  ], T, 7, 8);
+  return r.wrong;
+})(), [[49, E.NEIGHBOR], [15, E.ADDED]]);
+
+eq('答對的不會進錯誤清單', (function () {
+  return C.aggregateCell([{ ok: 1, ms: 1000, flags: 0, ans: 56 }], T, 7, 8).wrong;
+})(), []);
+
+eq('沒給格號時不做錯誤分析（向後相容）', (function () {
+  return C.aggregateCell([{ ok: 0, ms: 3000, flags: 0, ans: 49 }], T).wrong;
+})(), []);
+
+eq('快照裡帶著錯誤型態', (function () {
+  var det = C.encodeDetail([{ a: 7, b: 8, ans: 49, ok: 0, ms: 3000, flags: 0 }]);
+  var snap = C.buildSnapshot([{ mode: 'diagnostic', context: 'class',
+                                answeredAt: '2026-09-01T01:00:00Z', detail: det }], T);
+  return snap.base[C.cellIndex(7, 8)].wrong;
+})(), [[49, E.NEIGHBOR]]);
+
+// 給某位學生「該練哪些」的清單
+eq('弱項清單：不會排前面，同級時慢的排前面', (function () {
+  var cells = [];
+  for (var i = 0; i < 81; i++) {
+    cells.push({ n: 0, correct: 0, med: null, lv: C.LEVEL.UNKNOWN, tent: false, wrong: [] });
+  }
+  cells[C.cellIndex(2, 3)] = { n: 3, correct: 3, med: 4000, lv: C.LEVEL.SHAKY, tent: false, wrong: [] };
+  cells[C.cellIndex(7, 8)] = { n: 3, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: false, wrong: [] };
+  cells[C.cellIndex(6, 9)] = { n: 3, correct: 3, med: 7000, lv: C.LEVEL.SHAKY, tent: false, wrong: [] };
+  cells[C.cellIndex(1, 1)] = { n: 3, correct: 3, med: 800, lv: C.LEVEL.FLUENT, tent: false, wrong: [] };
+  return C.weakList(cells).map(function (x) { return x.a + 'x' + x.b; });
+})(), ['7x8', '6x9', '2x3']);
+
+eq('弱項清單不含很熟與未測', (function () {
+  var cells = [];
+  for (var i = 0; i < 81; i++) {
+    cells.push({ n: 3, correct: 3, med: 800, lv: C.LEVEL.FLUENT, tent: false, wrong: [] });
+  }
+  return C.weakList(cells).length;
+})(), 0);
+
+eq('弱項清單可限制筆數', (function () {
+  var cells = [];
+  for (var i = 0; i < 81; i++) {
+    cells.push({ n: 3, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: false, wrong: [] });
+  }
+  return C.weakList(cells, 5).length;
+})(), 5);
+
+eq('依「幾的乘法」歸納要練哪些數字', (function () {
+  var cells = [];
+  for (var i = 0; i < 81; i++) {
+    cells.push({ n: 3, correct: 3, med: 800, lv: C.LEVEL.FLUENT, tent: false, wrong: [] });
+  }
+  cells[C.cellIndex(7, 8)] = { n: 3, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: false, wrong: [] };
+  cells[C.cellIndex(7, 3)] = { n: 3, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: false, wrong: [] };
+  cells[C.cellIndex(6, 9)] = { n: 3, correct: 3, med: 5000, lv: C.LEVEL.SHAKY, tent: false, wrong: [] };
+  return C.rowsToPractice(cells);
+})(), [{ a: 7, weak: 2, shaky: 0 }, { a: 6, weak: 0, shaky: 1 }]);
 
 /* ===== 結果 ===== */
 console.log('\n' + '='.repeat(50));

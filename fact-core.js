@@ -106,11 +106,25 @@
    * 單格聚合。attempts 須為「已依作答時間排序並取好窗」的陣列。
    * 呼叫端負責決定納入哪些場次與取多少筆（見 buildSnapshot）。
    */
-  function aggregateCell(attempts, thresholdMs) {
+  function aggregateCell(attempts, thresholdMs, cellA, cellB) {
     var T = thresholdMs || DEFAULT_THRESHOLD_MS;
     var valid = attempts.filter(function (a) { return isValid(a.flags); });
+
+    // 學生填錯的那個數字本身就是診斷資訊，不可只記「答錯」
+    var wrong = [];
+    if (cellA && cellB) {
+      valid.forEach(function (x) {
+        if (x.ok !== 0) return;
+        var t = classifyError(cellA, cellB, x.ans);
+        if (t) wrong.push([x.ans, t]);
+      });
+      wrong = wrong.slice(-3);
+    }
+
     var n = valid.length;
-    if (n === 0) return { n: 0, correct: 0, med: null, lv: LEVEL.UNKNOWN, tent: false };
+    if (n === 0) {
+      return { n: 0, correct: 0, med: null, lv: LEVEL.UNKNOWN, tent: false, wrong: wrong };
+    }
 
     var tent = n <= TENTATIVE_MAX_N;
     var bad = valid.filter(function (a) { return a.ok !== 1; }).length;
@@ -118,7 +132,7 @@
 
     // 過半且至少 2 次 → 直接判不會，不看時間
     if (bad >= Math.ceil(n / 2) && bad >= 2) {
-      return { n: n, correct: correct, med: null, lv: LEVEL.WEAK, tent: tent };
+      return { n: n, correct: correct, med: null, lv: LEVEL.WEAK, tent: tent, wrong: wrong };
     }
 
     var oks = valid.filter(function (a) {
@@ -127,12 +141,12 @@
 
     // 沒有任何可用的答對筆（例：n=1 且答錯）
     if (!oks.length) {
-      return { n: n, correct: correct, med: null, lv: LEVEL.WEAK, tent: tent };
+      return { n: n, correct: correct, med: null, lv: LEVEL.WEAK, tent: tent, wrong: wrong };
     }
 
     var med = median(oks);
     var lv = gradeAttempt({ ok: 1, ms: med, flags: 0 }, T);
-    return { n: n, correct: correct, med: med, lv: lv, tent: tent };
+    return { n: n, correct: correct, med: med, lv: lv, tent: tent, wrong: wrong };
   }
 
   /* ---- 明細編解碼（設計文件 表 1） ---- */
@@ -149,6 +163,99 @@
     });
   }
 
+  /* ---- 錯誤型態分析 ---- */
+
+  /**
+   * 錯誤型態代碼。教學上這幾種要用完全不同的方式補救，
+   * 全部混在「答錯」裡等於浪費了學生填的那個數字。
+   */
+  var ERR = {
+    ADDED: 'added',           // 把乘當成加：7×8 填 15
+    NEIGHBOR: 'neighbor',     // 背到隔壁句：7×8 填 49（7×7）或 48（6×8）
+    REVERSED: 'reversed',     // 口訣對但數字寫顛倒：56 → 65
+    OTHER_FACT: 'other_fact', // 混到不相鄰的別句口訣：7×8 填 54（6×9）
+    OFF_TEN: 'off_ten',       // 差十，位值或進位問題
+    UNKNOWN: 'unknown'        // 看不出型態
+  };
+
+  function isProductOf(n) {
+    for (var i = 1; i <= 9; i++) {
+      for (var j = 1; j <= 9; j++) if (i * j === n) return true;
+    }
+    return false;
+  }
+
+  function reverseDigits(n) {
+    return Number(String(n).split('').reverse().join(''));
+  }
+
+  /**
+   * 判斷學生填的答案屬於哪種錯誤。答對或沒作答回 null。
+   * 優先序由「教學意義最明確」到最模糊，第一個命中的就是結果。
+   */
+  function classifyError(a, b, ans) {
+    if (ans === null || ans === undefined) return null;
+    var correct = a * b;
+    if (ans === correct) return null;
+
+    // 1. 用加的——概念層級的錯，最需要優先處理
+    if (ans === a + b) return ERR.ADDED;
+
+    // 2. 背到隔壁句（同列前後一句，或同行上下一句）
+    if ((b > 1 && ans === a * (b - 1)) || (b < 9 && ans === a * (b + 1)) ||
+        (a > 1 && ans === (a - 1) * b) || (a < 9 && ans === (a + 1) * b)) {
+      return ERR.NEIGHBOR;
+    }
+
+    // 3. 數字寫顛倒（只有兩位數才有意義，且不可與正解相同）
+    if (correct >= 10 && ans >= 10 && reverseDigits(correct) === ans) {
+      return ERR.REVERSED;
+    }
+
+    // 4. 混到別句口訣
+    if (isProductOf(ans)) return ERR.OTHER_FACT;
+
+    // 5. 差十——位值或進位
+    if (Math.abs(ans - correct) === 10) return ERR.OFF_TEN;
+
+    return ERR.UNKNOWN;
+  }
+
+  /* ---- 該練哪些 ---- */
+
+  /**
+   * 由某人的 81 格算出「要練的算式」，不會排前面，同級時慢的排前面。
+   * 教師頁與學生頁共用，避免兩邊排序規則不一致。
+   */
+  function weakList(cells, limit) {
+    var out = [];
+    for (var i = 0; i < 81; i++) {
+      var c = cells[i];
+      if (!c || (c.lv !== LEVEL.WEAK && c.lv !== LEVEL.SHAKY)) continue;
+      var cc = cellOf(i);
+      out.push({ index: i, a: cc.a, b: cc.b, lv: c.lv, med: c.med,
+                 n: c.n, wrong: c.wrong || [] });
+    }
+    out.sort(function (x, y) {
+      if (x.lv !== y.lv) return x.lv === LEVEL.WEAK ? -1 : 1;
+      return (y.med || 0) - (x.med || 0);
+    });
+    return limit ? out.slice(0, limit) : out;
+  }
+
+  /** 歸納成「要練幾的乘法」，供教師一眼看出每個人該加強哪幾個數字。 */
+  function rowsToPractice(cells) {
+    var by = {};
+    weakList(cells).forEach(function (w) {
+      if (!by[w.a]) by[w.a] = { a: w.a, weak: 0, shaky: 0 };
+      if (w.lv === LEVEL.WEAK) by[w.a].weak++; else by[w.a].shaky++;
+    });
+    return Object.keys(by).map(function (k) { return by[k]; })
+      .sort(function (x, y) {
+        return (y.weak * 2 + y.shaky) - (x.weak * 2 + x.shaky) || x.a - y.a;
+      });
+  }
+
   /* ---- 快照建構（設計文件 4.3 / D14 / 9.5） ---- */
 
   /** 基準組的納入條件：課堂 × 診斷。改這裡等於改教學判斷的依據，務必對照 D4。 */
@@ -159,7 +266,7 @@
   function emptyCells() {
     var out = [];
     for (var i = 0; i < 81; i++) {
-      out.push({ n: 0, correct: 0, med: null, lv: LEVEL.UNKNOWN, tent: false });
+      out.push({ n: 0, correct: 0, med: null, lv: LEVEL.UNKNOWN, tent: false, wrong: [] });
     }
     return out;
   }
@@ -192,8 +299,9 @@
     // slice(-w) 保留最新的 w 筆
     var out = { base: emptyCells(), all: emptyCells() };
     for (var k = 0; k < 81; k++) {
-      out.base[k] = aggregateCell(bucket.base[k].slice(-WINDOW_BASE), T);
-      out.all[k] = aggregateCell(bucket.all[k].slice(-WINDOW_ALL), T);
+      var cc = cellOf(k);
+      out.base[k] = aggregateCell(bucket.base[k].slice(-WINDOW_BASE), T, cc.a, cc.b);
+      out.all[k] = aggregateCell(bucket.all[k].slice(-WINDOW_ALL), T, cc.a, cc.b);
     }
     return out;
   }
@@ -434,6 +542,10 @@
     SPARSE_RATIO: SPARSE_RATIO,
 
     isValid: isValid,
+    ERR: ERR,
+    classifyError: classifyError,
+    weakList: weakList,
+    rowsToPractice: rowsToPractice,
     cellsForRows: cellsForRows,
     parseRows: parseRows,
     formatRows: formatRows,

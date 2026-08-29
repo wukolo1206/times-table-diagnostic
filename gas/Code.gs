@@ -481,6 +481,7 @@ function apiDashboard(code, pin) {
       base: JSON.parse(rows[i][3]),
       all: JSON.parse(rows[i][4]),
       sessions: rows[i][5],
+      lastAt: String(rows[i][6] || ''),   // 家長通知要寫測驗日期
       stale: rows[i][8] === true
     });
   }
