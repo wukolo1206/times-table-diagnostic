@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>我的九九乘法</title>
-<link rel="stylesheet" href="style.css?v=202608291441">
+<link rel="stylesheet" href="style.css?v=202608291535">
 <style>
   table.heat { margin: 8px auto; }
   table.heat th, table.heat td { width: 40px; height: 40px; font-size: 13px; }
@@ -66,13 +66,21 @@
     <div class="cmp" id="cmp"></div>
   </div>
 
+  <div class="card" id="actionCard">
+    <div id="actionHint" class="sub" style="margin:0 0 10px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="practice">練我的弱項</button>
+      <button id="home" class="ghost">回首頁選別的</button>
+    </div>
+  </div>
+
   <div class="card">
     <button id="dl" class="ghost">下載我的紀錄</button>
   </div>
 </div>
 
-<script src="fact-core.js?v=202608291441"></script>
-<script src="config.js?v=202608291441"></script>
+<script src="fact-core.js?v=202608291535"></script>
+<script src="config.js?v=202608291535"></script>
 <script>
 (function () {
   'use strict';
@@ -209,6 +217,27 @@
       renderBest(r.sprints);
       renderWeak(r.all);
       renderCompare(r.diagnostics);
+
+      // 看完弱項清單就該能直接開練，不然這一頁是死路
+      var pr = C.rowsToPractice(r.all);
+      var target = pr.slice(0, 3).map(function (x) { return x.a; });
+      if (target.length) {
+        $('actionHint').textContent =
+          '直接練 ' + target.join('、') + ' 的乘法（' +
+          target.length * 9 + ' 題裡會多出你不熟的）。';
+      } else {
+        $('actionHint').textContent = '測過的都很熟了，可以挑別的數字來練。';
+        $('practice').textContent = '開始練習';
+        target = [];
+      }
+      $('practice').onclick = function () {
+        var u = 'sprint.html?cls=' + encodeURIComponent(classCode) + '&seat=' + seat;
+        if (target.length) u += '&r=' + C.formatRows(target);
+        location.href = u;
+      };
+      $('home').onclick = function () {
+        location.href = 'index.html?cls=' + encodeURIComponent(classCode);
+      };
 
       $('dl').onclick = function () {
         var blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });

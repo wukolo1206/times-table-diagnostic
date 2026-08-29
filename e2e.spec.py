@@ -366,6 +366,12 @@ def test_me(pg):
     ck(pg.is_visible('#cmpCard'), '有兩次診斷時顯示進步比較')
     ck('+11' in pg.eval_on_selector('#cmp', 'e=>e.textContent'), '進步題數算對（71-60）')
     ck(pg.is_visible('#weakCard'), '顯示還要多練的清單')
+    # 這一頁原本是死路：看完弱項卻沒辦法直接去練
+    ck(pg.is_visible('#practice'), '有「練我的弱項」按鈕')
+    ck('7' in pg.inner_text('#actionHint'), '提示裡帶出要練的數字')
+    pg.click('#practice')
+    pg.wait_for_url('**/sprint.html*', timeout=10000)
+    ck('r=7' in pg.url, '按下去會帶著弱項數字進練習頁：' + pg.url.split('?')[-1])
 
 
 def test_teacher(pg):
