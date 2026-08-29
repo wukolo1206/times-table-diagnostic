@@ -2,7 +2,7 @@
 project: 九九乘法熟練度診斷
 category: 康軒數學
 status: 已上線並實測，待實機平板＋校內網路驗證
-version: 0.6.0
+version: 0.6.1
 url: https://wukolo1206.github.io/times-table-diagnostic/
 next_action: 拿真平板到學校連校內網路做一次完整作答（手機 5G 已通過，剩學校網路那關），再跑碧小408 全班診斷
 updated: 2026-08-29
@@ -61,6 +61,7 @@ updated: 2026-08-29
 | `tools/deploy_gas.py` | 建立 Apps Script 專案、上傳程式碼、更新部署，並回寫 `config.js` |
 | `tools/loadtest.py` | 33 筆併發上傳與去重驗證 |
 | `tools/stamp_assets.py` | **改完前端一定要跑**：在 js/css 參照加版本戳記，否則平板會繼續跑舊版 |
+| `tools/rename_class.py` | 改班級代碼（同時更新四張表，手動改一定會漏） |
 | `sync-core-to-gas.py` | 由 `fact-core.js` 產生 `gas/FactCore.gs` |
 
 ## 不能動的地方
@@ -75,6 +76,8 @@ updated: 2026-08-29
 - **7×8 與 8×7 是不同的格**：不可為了省題數合併——學生只背了一個方向的口訣
 - **改完前端要跑 `python tools/stamp_assets.py`**：不蓋版本戳記的話，
   GitHub Pages 與瀏覽器的快取會讓學生平板繼續跑舊版，而且沒有任何錯誤訊息
+- **班級代碼的複雜度看有沒有存姓名**：純座號模式沒有個資，用好記的代碼（如 `4088`）即可；
+  會存姓名的班級才需要不可猜的隨機碼。四年級打不出 `49QY48` 這種東西
 - **repo 內不得有任何學生個資**：GitHub Pages 是公開的，名單只存在 Sheets
 
 ## Phase 2 待做

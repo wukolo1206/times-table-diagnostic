@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608291615">
+<link rel="stylesheet" href="style.css?v=202608291959">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -76,6 +76,23 @@
       <button id="csv" class="ghost">匯出 CSV</button>
     </div>
 
+    <div class="card" style="background:#f4f8f9;border-color:var(--accent)">
+      <h2 style="margin:0 0 6px">學生用的連結</h2>
+      <p class="sub" style="margin:0 0 10px">
+        把這個連結發給學生（LINE、Google Classroom、聯絡簿都可以），
+        他們點開就直接看到座號，不用自己打班級代碼。
+      </p>
+      <div id="stuLink" style="font-size:15px;word-break:break-all;background:#fff;
+           border:1px solid var(--line);border-radius:10px;padding:10px"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button id="copyLink" class="ghost small">複製連結</button>
+        <span class="sub" id="linkMsg" style="align-self:center"></span>
+      </div>
+      <p class="sub" style="margin:10px 0 0">
+        真的要手動輸入時，班級代碼是 <strong id="codeShow"></strong>。
+      </p>
+    </div>
+
     <div class="cols">
       <div class="main">
         <div class="card">
@@ -135,8 +152,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608291615"></script>
-<script src="config.js?v=202608291615"></script>
+<script src="fact-core.js?v=202608291959"></script>
+<script src="config.js?v=202608291959"></script>
 <script>
 (function () {
   'use strict';
@@ -480,6 +497,23 @@
         $('loginCard').hidden = true;
         $('board').hidden = false;
         $('cname').textContent = r.className;
+
+        // 學生不該需要打代碼——給老師一個可直接發出去的連結
+        var base = location.href.split('teacher.html')[0];
+        var link = base + '?cls=' + encodeURIComponent(classCode);
+        $('stuLink').textContent = link;
+        $('codeShow').textContent = classCode;
+        $('copyLink').onclick = function () {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(link).then(function () {
+              $('linkMsg').textContent = '已複製，可以直接貼給學生。';
+            }, function () {
+              $('linkMsg').textContent = '複製失敗，請手動選取上面的網址。';
+            });
+          } else {
+            $('linkMsg').textContent = '這個瀏覽器不支援自動複製，請手動選取。';
+          }
+        };
         $('thr').value = String(r.thresholdMs);
 
         ['proxySeat', 'oneSeat'].forEach(function (id) {

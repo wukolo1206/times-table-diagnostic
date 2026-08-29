@@ -421,6 +421,9 @@ def test_teacher(pg):
     pg.click('#login')
     pg.wait_for_selector('#board:not([hidden])')
     ck(pg.eval_on_selector_all('table.heat td', 'e=>e.length') == 81, '班級熱圖 81 格')
+    ck('?cls=TEST01' in pg.inner_text('#stuLink'), '顯示可直接發給學生的連結')
+    ck('teacher.html' not in pg.inner_text('#stuLink'), '學生連結不會指到教師頁')
+    ck(pg.inner_text('#codeShow') == 'TEST01', '同時附上班級代碼備用')
     # 沒做過的學生也要算進分母，否則「樣本不足」的保護會失效
     ck('3 人中 2 人有資料' in pg.inner_text('#coverage'),
        '涵蓋率把沒做過的人算進分母：' + pg.inner_text('#coverage').strip())
