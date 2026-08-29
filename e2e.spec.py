@@ -383,6 +383,8 @@ def test_teacher(pg):
     # 沒做過的學生也要算進分母，否則「樣本不足」的保護會失效
     ck('3 人中 2 人有資料' in pg.inner_text('#coverage'),
        '涵蓋率把沒做過的人算進分母：' + pg.inner_text('#coverage').strip())
+    ck('資料還不夠' not in pg.inner_text('#coverage'),
+       '2/3 已達六成，不顯示資料不足警告')
     ck(pg.eval_on_selector_all('td.sparse', 'e=>e.length') > 0,
        '只有 2/3 做過，格子要標斜紋提醒別當結論')
 

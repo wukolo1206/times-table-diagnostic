@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608291248">
+<link rel="stylesheet" href="style.css?v=202608291441">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -135,8 +135,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608291248"></script>
-<script src="config.js?v=202608291248"></script>
+<script src="fact-core.js?v=202608291441"></script>
+<script src="config.js?v=202608291441"></script>
 <script>
 (function () {
   'use strict';
@@ -183,7 +183,9 @@
     var snaps = snapshots();
     var heat = C.classHeatmap(snaps, g);
     var cov = C.classCoverage(snaps, g);
-    $('coverage').textContent = '　' + cov.total + ' 人中 ' + cov.done + ' 人有資料';
+    var enough = cov.total > 0 && cov.done >= cov.total * C.SPARSE_RATIO;
+    $('coverage').innerHTML = '　' + cov.total + ' 人中 ' + cov.done + ' 人有資料' +
+      (enough ? '' : '　<span style="color:var(--weak)">（資料還不夠，先別當結論）</span>');
 
     var t = $('heat');
     t.innerHTML = '';
@@ -221,7 +223,25 @@
       li.onclick = function () { showDetail(h.a, h.b); };
       ol.appendChild(li);
     });
-    $('topEmpty').hidden = top.length > 0;
+    // 空白的原因有兩種，意思完全相反，不可以用同一句話帶過：
+    // 「全班都很熟」是好消息，「資料還太少」是還不能下判斷。
+    if (top.length > 0) {
+      $('topEmpty').hidden = true;
+    } else {
+      var anyWeak = heat.some(function (h) { return h.score > 0; });
+      $('topEmpty').hidden = false;
+      if (cov.done === 0) {
+        $('topEmpty').textContent = '還沒有人做過測驗。';
+      } else if (anyWeak) {
+        $('topEmpty').innerHTML =
+          '<strong>資料還太少，先不下結論。</strong><br>' +
+          '目前 ' + cov.total + ' 人中只有 ' + cov.done + ' 人做過，' +
+          '要有六成以上（約 ' + Math.ceil(cov.total * 0.6) + ' 人）完成，' +
+          '這裡才會列出建議。';
+      } else {
+        $('topEmpty').textContent = '做過的人都很熟，目前沒有明顯落後的算式。';
+      }
+    }
 
     if (data.anomalies && data.anomalies.length) {
       $('anomalies').innerHTML = data.anomalies.map(function (x) {
