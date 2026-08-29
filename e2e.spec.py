@@ -331,6 +331,8 @@ def test_sprint(pg):
     ck('比上次的 8 題進步' in detail, '第一顆星說明跟上次比')
     ck('每分鐘達到 30 題' in detail, '第二顆星說明 CPM 目標')
     ck('全部都很熟' in detail, '第三顆星說明範圍全綠')
+    ck(pg.is_visible('#goalBox'), '結束畫面顯示還差幾格')
+    ck('7 的乘法' in pg.inner_text('#goalBox'), '進度框寫出是哪個數字')
 
     pg.wait_for_function('document.getElementById("upMsg").textContent.indexOf("上傳中") === -1',
                          timeout=20000)
@@ -354,6 +356,10 @@ def test_me(pg):
     # 只看畫面上真正顯示的文字，不看原始碼——程式註解裡提到「不會」不算
     visible = pg.inner_text('body')
     ck('不會' not in visible, '學生端畫面不出現「不會」字樣（Q5）')
+    ck(pg.eval_on_selector_all('.badge', 'e=>e.length') == 9, '徽章有九枚')
+    ck('已收集' in pg.inner_text('#badgeCount'), '顯示收集進度')
+    ck(pg.is_visible('#bestCard'), '有練習紀錄時顯示最佳紀錄')
+    ck('80 分' in pg.inner_text('#best'), '最高分由答對題數換算（8 題×10）')
     ck(pg.is_visible('#cmpCard'), '有兩次診斷時顯示進步比較')
     ck('+11' in pg.eval_on_selector('#cmp', 'e=>e.textContent'), '進步題數算對（71-60）')
     ck(pg.is_visible('#weakCard'), '顯示還要多練的清單')

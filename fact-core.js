@@ -408,6 +408,39 @@
     return parseRows(rows.join('')).join('');
   }
 
+  /* ---- 徽章與進度 ---- */
+
+  /**
+   * 九枚數字徽章：某個數字的 9 格全綠才點亮。
+   * 這樣設計是為了讓「想收集徽章」和「該去練弱格」變成同一件事——
+   * 孩子為了點亮 7，就非得把 7×8 練起來不可，沒有繞路的空間。
+   */
+  function badgesOf(cells) {
+    var out = [];
+    for (var a = 1; a <= 9; a++) {
+      var green = 0;
+      for (var b = 1; b <= 9; b++) {
+        var c = cells[cellIndex(a, b)];
+        if (c && c.lv === LEVEL.FLUENT) green++;
+      }
+      out.push({ a: a, green: green, total: 9, done: green === 9 });
+    }
+    return out;
+  }
+
+  /** 某個範圍還差幾格全綠。快完成的東西最有拉力。 */
+  function progressOf(cells, rows) {
+    var green = 0, total = 0;
+    rows.forEach(function (a) {
+      for (var b = 1; b <= 9; b++) {
+        total++;
+        var c = cells[cellIndex(a, b)];
+        if (c && c.lv === LEVEL.FLUENT) green++;
+      }
+    });
+    return { green: green, total: total, remain: total - green };
+  }
+
   /* ---- 精熟練習：抽題與星等（DECISIONS Phase 2） ---- */
 
   var SPRINT_BASE = {};
@@ -645,6 +678,8 @@
     SPARSE_RATIO: SPARSE_RATIO,
 
     isValid: isValid,
+    badgesOf: badgesOf,
+    progressOf: progressOf,
     pickSprint: pickSprint,
     cpmOf: cpmOf,
     starsFor: starsFor,

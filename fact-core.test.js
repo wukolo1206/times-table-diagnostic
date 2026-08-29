@@ -794,6 +794,61 @@ eq('CPM 計算：30 秒答對 15 題 → 30', C.cpmOf(15, 30), 30);
 eq('CPM 計算：90 秒答對 30 題 → 20', C.cpmOf(30, 90), 20);
 eq('秒數為 0 時回 0，不炸掉', C.cpmOf(10, 0), 0);
 
+
+/* =============================================================
+ * 11. 徽章與進度
+ * =========================================================== */
+group('11. 徽章與進度');
+
+function allFluentExcept(missing) {
+  var cs = [];
+  for (var i = 0; i < 81; i++) {
+    cs.push({ n: 3, correct: 3, med: 1000, lv: C.LEVEL.FLUENT, tent: false, wrong: [] });
+  }
+  (missing || []).forEach(function (idx) {
+    cs[idx] = { n: 3, correct: 0, med: null, lv: C.LEVEL.WEAK, tent: false, wrong: [] };
+  });
+  return cs;
+}
+
+eq('九枚徽章', C.badgesOf(allFluentExcept([])).length, 9);
+eq('全綠時九枚全亮', (function () {
+  return C.badgesOf(allFluentExcept([])).filter(function (b) { return b.done; }).length;
+})(), 9);
+eq('一格不綠，那一枚就不亮', (function () {
+  var bs = C.badgesOf(allFluentExcept([C.cellIndex(7, 8)]));
+  return [bs[6].a, bs[6].done, bs[6].green];
+})(), [7, false, 8]);
+eq('其他徽章不受影響', (function () {
+  var bs = C.badgesOf(allFluentExcept([C.cellIndex(7, 8)]));
+  return bs.filter(function (b) { return b.done; }).length;
+})(), 8);
+eq('未測的格不算綠', (function () {
+  var cs = [];
+  for (var i = 0; i < 81; i++) {
+    cs.push({ n: 0, correct: 0, med: null, lv: C.LEVEL.UNKNOWN, tent: false, wrong: [] });
+  }
+  return C.badgesOf(cs).filter(function (b) { return b.done; }).length;
+})(), 0);
+eq('徽章帶著綠格數，可以做進度條', (function () {
+  var cs = [];
+  for (var i = 0; i < 81; i++) {
+    cs.push({ n: 0, correct: 0, med: null, lv: C.LEVEL.UNKNOWN, tent: false, wrong: [] });
+  }
+  cs[C.cellIndex(3, 1)] = { n: 3, correct: 3, med: 900, lv: C.LEVEL.FLUENT, tent: false, wrong: [] };
+  cs[C.cellIndex(3, 2)] = { n: 3, correct: 3, med: 900, lv: C.LEVEL.FLUENT, tent: false, wrong: [] };
+  return C.badgesOf(cs)[2];
+})(), { a: 3, green: 2, total: 9, done: false });
+
+eq('範圍進度：全綠', C.progressOf(allFluentExcept([]), [7]),
+   { green: 9, total: 9, remain: 0 });
+eq('範圍進度：差一格', C.progressOf(allFluentExcept([C.cellIndex(7, 8)]), [7]),
+   { green: 8, total: 9, remain: 1 });
+eq('多列一起算', C.progressOf(allFluentExcept([C.cellIndex(7, 8), C.cellIndex(6, 9)]), [6, 7]),
+   { green: 16, total: 18, remain: 2 });
+eq('空範圍不炸掉', C.progressOf(allFluentExcept([]), []),
+   { green: 0, total: 0, remain: 0 });
+
 /* ===== 結果 ===== */
 console.log('\n' + '='.repeat(50));
 console.log('  PASS ' + pass + '   FAIL ' + fail);

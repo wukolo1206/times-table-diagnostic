@@ -37,6 +37,17 @@
   .starline .got { color: var(--ink); }
   .starline .miss { color: var(--muted); }
   .intro { text-align: left; line-height: 1.9; }
+  .pbbanner {
+    background: var(--fluent); color: #fff; border-radius: 12px;
+    padding: 12px; font-size: 18px; font-weight: 700; margin-bottom: 12px;
+  }
+  .goalbox {
+    margin-top: 16px; padding: 14px; border: 1px solid var(--line);
+    border-radius: 12px; background: #faf9f6; text-align: left; font-size: 16px;
+    line-height: 1.9;
+  }
+  .goalbox .bar { height: 8px; background: var(--line); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .goalbox .bar > i { display: block; height: 100%; background: var(--fluent); }
 </style>
 </head>
 <body>
@@ -63,10 +74,12 @@
 
   <div class="card stage" id="doneStage" hidden>
     <h1>時間到</h1>
+    <div id="pb" hidden class="pbbanner">🎉 破紀錄！比之前最好的還多 <span id="pbDiff"></span> 題</div>
     <div class="bigscore" id="finalScore">0 分</div>
     <div class="sub" id="finalDetail"></div>
     <div class="stars" id="stars"></div>
     <div class="starline" id="starDetail"></div>
+    <div id="goalBox" class="goalbox" hidden></div>
     <div class="msg" id="upMsg">成績上傳中…</div>
     <div style="margin-top:16px">
       <button id="again">再來一次</button>
@@ -264,6 +277,27 @@
       prevBest: prevBest, cpmGoal: cfg.cpmGoal
     });
     $('stars').textContent = '★'.repeat(st.count) + '☆'.repeat(3 - st.count);
+
+    // 破紀錄：跟自己比，人人都有機會
+    if (prevBest !== null && state.correct > prevBest) {
+      $('pbDiff').textContent = (state.correct - prevBest);
+      $('pb').hidden = false;
+    }
+
+    // 還差幾格——快完成的東西最有拉力
+    var pr = C.progressOf(myCells, rows);
+    if (pr.total) {
+      var pct = Math.round(pr.green / pr.total * 100);
+      var label = rows.length === 1 ? (rows[0] + ' 的乘法') : (rows.join('、') + ' 的乘法');
+      $('goalBox').innerHTML = pr.remain === 0
+        ? ('<strong>' + label + '已經全部練熟了。</strong><br>可以挑戰別的數字了。')
+        : ('<strong>' + label + '</strong>　還差 <strong>' + pr.remain +
+           '</strong> 格就能點亮徽章<br>' +
+           '<span class="sub">目前 ' + pr.green + ' / ' + pr.total + ' 題已經很熟</span>' +
+           '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+           '<span class="sub">（練習成績要等一下才會反映到這裡）</span>');
+      $('goalBox').hidden = false;
+    }
     $('starDetail').innerHTML =
       line(st.progress, prevBest === null ? '第一次挑戰' : ('比上次的 ' + prevBest + ' 題進步')) +
       line(st.goal, '每分鐘達到 ' + cfg.cpmGoal + ' 題（目前 ' + cpm + '）') +

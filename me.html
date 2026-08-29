@@ -12,6 +12,20 @@
   .cmp { display: flex; gap: 20px; flex-wrap: wrap; }
   .cmp > div { flex: 1 1 130px; }
   .big { font-size: 30px; font-weight: 700; }
+  .badge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; }
+  .badge {
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 4px;
+    text-align: center; background: #fff;
+  }
+  .badge .n { font-size: 26px; font-weight: 700; color: var(--unknown); }
+  .badge .p { font-size: 12px; color: var(--muted); }
+  .badge.done { background: var(--fluent); border-color: var(--fluent); }
+  .badge.done .n { color: #fff; }
+  .badge.done .p { color: rgba(255,255,255,.9); }
+  .bar { height: 5px; background: var(--line); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--fluent); }
+  .best-row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .best-row > div { flex: 1 1 110px; }
 </style>
 </head>
 <body>
@@ -28,6 +42,18 @@
       <span><i style="background:var(--unknown)"></i>還沒測過</span>
       <span>斜紋＝只測過一兩次，還不準</span>
     </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin:0 0 4px">我的徽章</h2>
+    <p class="sub" style="margin:0 0 12px">一個數字的九題全部變綠，就能點亮那一枚。</p>
+    <div class="badge-grid" id="badges"></div>
+    <div style="margin-top:12px;font-size:17px" id="badgeCount"></div>
+  </div>
+
+  <div class="card" id="bestCard" hidden>
+    <h2 style="margin:0 0 10px">我的最佳紀錄</h2>
+    <div class="best-row" id="best"></div>
   </div>
 
   <div class="card" id="weakCard" hidden>
@@ -131,6 +157,46 @@
     $('cmpCard').hidden = false;
   }
 
+  function renderBadges(cells) {
+    var bs = C.badgesOf(cells);
+    var box = $('badges');
+    box.innerHTML = '';
+    bs.forEach(function (b) {
+      var d = document.createElement('div');
+      d.className = 'badge' + (b.done ? ' done' : '');
+      d.innerHTML = '<div class="n">' + b.a + '</div>' +
+                    '<div class="p">' + (b.done ? '完成' : b.green + ' / 9') + '</div>' +
+                    (b.done ? '' : '<div class="bar"><i style="width:' +
+                     Math.round(b.green / 9 * 100) + '%"></i></div>');
+      d.title = b.a + ' 的乘法：' + b.green + ' / 9 題已經很熟';
+      box.appendChild(d);
+    });
+    var done = bs.filter(function (b) { return b.done; }).length;
+    $('badgeCount').textContent = done === 9
+      ? '九枚全部收集完成，九九乘法全部練熟了。'
+      : ('已收集 ' + done + ' / 9 枚');
+  }
+
+  function renderBest(sprints) {
+    if (!sprints || !sprints.length) return;
+    var bestCorrect = 0, bestCpm = 0;
+    sprints.forEach(function (sp) {
+      if (sp.correct > bestCorrect) bestCorrect = sp.correct;
+      if (sp.cpm && sp.cpm > bestCpm) bestCpm = sp.cpm;
+    });
+    var box = $('best');
+    box.innerHTML = '';
+    [['最高分', (bestCorrect * 10) + ' 分'],
+     ['最快速度', bestCpm + ' 題／分'],
+     ['練習次數', sprints.length + ' 次']].forEach(function (p) {
+      var d = document.createElement('div');
+      d.innerHTML = '<div class="sub" style="margin:0">' + p[0] +
+                    '</div><div class="big">' + p[1] + '</div>';
+      box.appendChild(d);
+    });
+    $('bestCard').hidden = false;
+  }
+
   var url = window.TTD_GAS_URL + '?action=myrecord&cls=' + encodeURIComponent(classCode) +
             '&seat=' + seat;
   fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); })
@@ -139,6 +205,8 @@
       $('title').textContent = r.name ? (r.name + ' 的九九乘法') : (seat + ' 號的九九乘法');
       $('sub').textContent = '做過 ' + r.diagnostics.length + ' 次診斷。綠色是已經很熟的。';
       renderHeat(r.all);
+      renderBadges(r.all);
+      renderBest(r.sprints);
       renderWeak(r.all);
       renderCompare(r.diagnostics);
 
