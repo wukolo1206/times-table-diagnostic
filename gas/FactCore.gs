@@ -3,7 +3,7 @@
  * 不要手動編輯這個檔案。改 fact-core.js 之後執行：
  *     python sync-core-to-gas.py
  *
- * 來源雜湊：02cbe13d4352aff7
+ * 來源雜湊：b7bfc40f5bba0f2f
  */
 var FactCore = (function () {
   'use strict';
@@ -405,6 +405,109 @@ var FactCore = (function () {
     return parseRows(rows.join('')).join('');
   }
 
+  /* ---- 精熟練習：抽題與星等（DECISIONS Phase 2） ---- */
+
+  var SPRINT_BASE = {};
+  SPRINT_BASE[LEVEL.WEAK] = 5;
+  SPRINT_BASE[LEVEL.UNKNOWN] = 4;
+  SPRINT_BASE[LEVEL.SHAKY] = 3;
+  SPRINT_BASE[LEVEL.FLUENT] = 1;
+
+  var FLUENT_FLOOR = 0.2;   // 熟練格保底比例（設計文件 7.2）
+  var NO_REPEAT_WITHIN = 5;
+
+  function weightedPick(pool, rnd) {
+    var total = 0, i;
+    for (i = 0; i < pool.length; i++) total += pool[i].w;
+    var r = rnd() * total;
+    for (i = 0; i < pool.length; i++) {
+      r -= pool[i].w;
+      if (r <= 0) return pool[i];
+    }
+    return pool[pool.length - 1];
+  }
+
+  /**
+   * 精熟練習的題目佇列。弱格加權，但保留兩成熟練格——
+   * 全是不會的太挫折，而且熟練格若永遠不再測，資料會凍結（設計文件 7.2）。
+   *
+   * cells 為該生的全量組快照，rows 為要測的列，count 為要抽幾題。
+   * 註：設計文件 7.2 的「遺忘因子」需要每格的上次作答日期，
+   * 目前快照沒有存，故此版只用等級權重，日期加權留待快照擴充後再加。
+   */
+  function pickSprint(cells, rows, count, rnd) {
+    var r = rnd || Math.random;
+    var weak = [], fluent = [];
+    rows.forEach(function (a) {
+      for (var b = 1; b <= 9; b++) {
+        var idx = cellIndex(a, b);
+        var c = cells[idx] || { lv: LEVEL.UNKNOWN };
+        var item = { a: a, b: b, w: SPRINT_BASE[c.lv] || 4 };
+        if (c.lv === LEVEL.FLUENT) fluent.push(item); else weak.push(item);
+      }
+    });
+    if (!weak.length && !fluent.length) return [];
+
+    var fluentQuota = (count >= 5 && fluent.length)
+      ? Math.max(1, Math.floor(count * FLUENT_FLOOR)) : 0;
+    if (!weak.length) fluentQuota = count;
+    if (!fluent.length) fluentQuota = 0;
+
+    var plan = [];
+    for (var k = 0; k < count; k++) plan.push(k < count - fluentQuota ? weak : fluent);
+    shuffle(plan, r);
+
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      var pool = plan[i];
+      if (!pool.length) pool = (pool === weak ? fluent : weak);
+      var pick = null;
+      // 抽中最近 5 題出現過的就重抽；池子太小時放寬，不可卡死
+      for (var t = 0; t < 10; t++) {
+        var cand = weightedPick(pool, r);
+        var dup = false;
+        for (var j = Math.max(0, out.length - NO_REPEAT_WITHIN); j < out.length; j++) {
+          if (out[j].a === cand.a && out[j].b === cand.b) { dup = true; break; }
+        }
+        if (!dup) { pick = cand; break; }
+        pick = cand;
+      }
+      out.push({ a: pick.a, b: pick.b });
+    }
+    return out;
+  }
+
+  /** 每分鐘正確題數。 */
+  function cpmOf(correct, seconds) {
+    if (!seconds) return 0;
+    return Math.round(correct / seconds * 60);
+  }
+
+  /**
+   * 三顆星（DECISIONS P2）。門檻跟著自己走，不用全班同一個分數線——
+   * 統一門檻會讓快的孩子第一次就過關、慢的孩子永遠過不了。
+   *
+   * o: { correct, cpm, cells, rows, prevBest, cpmGoal }
+   */
+  function starsFor(o) {
+    var progress = (o.prevBest === null || o.prevBest === undefined)
+      ? true : (o.correct > o.prevBest);
+    var goal = o.cpm >= (o.cpmGoal || 30);
+
+    var mastered = o.rows.length > 0;
+    o.rows.forEach(function (a) {
+      for (var b = 1; b <= 9; b++) {
+        var c = o.cells[cellIndex(a, b)];
+        if (!c || c.lv !== LEVEL.FLUENT) mastered = false;
+      }
+    });
+
+    return {
+      progress: progress, goal: goal, mastered: mastered,
+      count: (progress ? 1 : 0) + (goal ? 1 : 0) + (mastered ? 1 : 0)
+    };
+  }
+
   /* ---- 反應時間與旗標（設計文件 4.4） ---- */
 
   /**
@@ -539,6 +642,9 @@ var FactCore = (function () {
     SPARSE_RATIO: SPARSE_RATIO,
 
     isValid: isValid,
+    pickSprint: pickSprint,
+    cpmOf: cpmOf,
+    starsFor: starsFor,
     ERR: ERR,
     classifyError: classifyError,
     weakList: weakList,

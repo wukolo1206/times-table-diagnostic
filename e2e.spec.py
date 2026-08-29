@@ -89,6 +89,9 @@ def route_gas(route, request):
         cells[C78] = cell("weak", 9000, 1)
         cells[C23] = cell("fluent", 900)
         body = {"ok": True, "name": "小明", "thresholdMs": 3000,
+                "sprintSec": 10, "cpmGoal": 30,
+                "sprints": [{"answeredAt": "2026-09-01T01:00:00Z", "total": 12,
+                             "correct": 8, "cpm": 24, "rows": "7"}],
                 "base": cells, "all": cells,
                 "diagnostics": [
                     {"answeredAt": "2026-09-01T01:00:00Z", "total": 81,
@@ -129,13 +132,13 @@ def test_index(pg):
     pg.click('.seat-btn')
     ck(pg.is_visible('#rangeCard'), '選了座號後出現範圍選擇')
     ck('請點選' in pg.inner_text('#count'), '預設一個都沒選，要自己點')
-    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '沒點數字時不能開始')
+    ck(pg.eval_on_selector('#modeDiag', 'e=>e.disabled') is True, '沒點數字時不能開始')
     ck(pg.eval_on_selector_all('.row-btn', 'e=>e.map(x=>x.textContent)') ==
        ['1','2','3','4','5','6','7','8','9'], '按鈕只顯示數字')
 
     pg.click('.row-btn')
     ck(pg.inner_text('#count') == '共 9 題', '點一個數字是 9 題')
-    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is False, '點了就能開始')
+    ck(pg.eval_on_selector('#modeDiag', 'e=>e.disabled') is False, '點了就能開始')
     pg.click('.row-btn')
     ck('請點選' in pg.inner_text('#count'), '再點一次會取消選取')
 
@@ -143,9 +146,13 @@ def test_index(pg):
     ck(pg.inner_text('#count') == '共 36 題', '6～9 是 36 題')
     ck(pg.eval_on_selector_all('.row-btn.on', 'e=>e.length') == 4, '亮起 4 個')
     pg.click('[data-preset="none"]')
-    ck(pg.eval_on_selector('#start', 'e=>e.disabled') is True, '清除後不能開始')
+    ck(pg.eval_on_selector('#modeDiag', 'e=>e.disabled') is True, '清除後不能開始')
     pg.click('[data-preset="all"]')
     ck(pg.inner_text('#count') == '共 81 題', '全選是 81 題')
+    ck(pg.eval_on_selector('#modeDiag', 'e=>e.disabled') is False, '可以選診斷')
+    ck(pg.eval_on_selector('#modeSprint', 'e=>e.disabled') is False, '可以選精熟練習')
+    pg.click('[data-preset="none"]')
+    ck(pg.eval_on_selector('#modeSprint', 'e=>e.disabled') is True, '沒選數字時兩個模式都不能按')
 
 
 def test_diagnose(pg):
@@ -274,6 +281,69 @@ def test_partial(pg):
     ck(pg.evaluate('localStorage.getItem("ttd_progress_v1")') is None, '送出後清掉進度')
 
 
+def test_sprint(pg):
+    """精熟練習：限時、計分、答錯鎖定、三顆星。"""
+    print('== sprint.html（精熟練習，10 秒）')
+    posted.clear()
+    pg.goto(BASE + 'sprint.html?cls=TEST01&seat=1&r=7')
+    pg.evaluate('localStorage.clear()')
+    pg.reload()
+    pg.wait_for_function('!document.getElementById("go").disabled', timeout=30000)
+
+    intro = pg.inner_text('#introText')
+    ck('10 秒' in intro, '說明頁顯示班級設定的秒數')
+    ck('不要亂按' in intro, '說明頁提醒答錯會停一下')
+    ck('上次最好答對 8 題' in intro, '顯示同範圍的上次最佳成績')
+
+    pg.click('#go')
+    pg.wait_for_selector('#playStage:not([hidden])', timeout=5000)
+    ck(pg.inner_text('#score') == '0 分', '分數從 0 開始')
+
+    a, b = [int(x) for x in pg.inner_text('#q').replace('×', ' ').split()]
+    ck(a == 7, '只出選定範圍的題目')
+
+    # 答對一題 → 加分
+    ans = str(a * b)
+    for d in ans:
+        pg.click('.pad button:text-is("%s")' % d)
+    if len(ans) == 1:
+        pg.click('.pad button:text-is("送出")')
+    pg.wait_for_function('document.getElementById("score").textContent === "10 分"',
+                         timeout=4000)
+    ck(True, '答對加 10 分')
+
+    # 答錯 → 不扣分但鍵盤鎖住
+    pg.wait_for_timeout(400)
+    pg.click('.pad button:text-is("9")')
+    pg.click('.pad button:text-is("9")')
+    pg.wait_for_selector('.fb.no', timeout=4000)
+    ck(pg.inner_text('#score') == '10 分', '答錯不扣分（分數只往上）')
+    ck(pg.eval_on_selector('#pad', 'e=>e.classList.contains("locked")') is True,
+       '答錯後鍵盤鎖住 1.5 秒')
+
+    # 等時間到
+    pg.wait_for_selector('#doneStage:not([hidden])', timeout=20000)
+    ck('分' in pg.inner_text('#finalScore'), '結束顯示分數')
+    ck('每分鐘' in pg.inner_text('#finalDetail'), '結束顯示每分鐘題數')
+    stars = pg.inner_text('#stars')
+    ck(len(stars) == 3, '三顆星位置都在')
+    detail = pg.inner_text('#starDetail')
+    ck('比上次的 8 題進步' in detail, '第一顆星說明跟上次比')
+    ck('每分鐘達到 30 題' in detail, '第二顆星說明 CPM 目標')
+    ck('全部都很熟' in detail, '第三顆星說明範圍全綠')
+
+    pg.wait_for_function('document.getElementById("upMsg").textContent.indexOf("上傳中") === -1',
+                         timeout=20000)
+    ck(len(posted) == 1, '整場只送一次，實際 %d 次' % len(posted))
+    if posted:
+        pl = posted[0]
+        ck(pl['mode'] == 'sprint', '模式標為 sprint')
+        ck(pl['config']['limitSec'] == 10, '設定記錄秒數')
+        ck(pl['config']['rows'] == '7', '設定記錄範圍')
+        errs = contract_errors(pl)
+        ck(not errs, '精熟練習的資料也符合契約：' + ('; '.join(errs[:2]) if errs else 'OK'))
+
+
 def test_me(pg):
     print('== me.html')
     pg.goto(BASE + 'me.html?cls=TEST01&seat=1')
@@ -377,6 +447,7 @@ def main():
             test_index(pg)
             test_diagnose(pg)
             test_partial(pg)
+            test_sprint(pg)
             test_me(pg)
             test_teacher(pg)
         finally:

@@ -13,6 +13,16 @@
   }
   .row-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
   button.small { font-size: 15px; padding: 8px 14px; }
+  .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .mode-btn {
+    display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+    text-align: left; padding: 16px; background: #fff; color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  .mode-btn:disabled { background: #fbfaf8; }
+  .mode-btn .mt { font-size: 19px; font-weight: 700; color: var(--accent); }
+  .mode-btn:disabled .mt { color: var(--muted); }
+  .mode-btn .ms { font-size: 14px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -44,9 +54,22 @@
       <button class="ghost small" data-preset="none">清除</button>
     </div>
     <div style="margin-top:14px;font-size:17px" id="count">共 81 題</div>
-    <div style="margin-top:14px">
-      <button id="start" disabled>開始</button>
-      <button id="mine" class="ghost" disabled>看我的紀錄</button>
+
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+      <div style="font-size:17px;font-weight:700;margin-bottom:8px">要做什麼？</div>
+      <div class="mode-grid">
+        <button class="mode-btn" id="modeDiag">
+          <span class="mt">診斷</span>
+          <span class="ms">全部做完，找出哪些還不熟</span>
+        </button>
+        <button class="mode-btn" id="modeSprint">
+          <span class="mt">精熟練習</span>
+          <span class="ms">限時搶答，專練自己的弱項</span>
+        </button>
+      </div>
+      <div style="margin-top:14px">
+        <button id="mine" class="ghost" disabled>看我的紀錄</button>
+      </div>
     </div>
   </div>
 </div>
@@ -152,7 +175,9 @@
   function updateCount() {
     var n = chosenRows().length * 9;
     $('count').textContent = n === 0 ? '請點選要測的數字' : ('共 ' + n + ' 題');
-    $('start').disabled = (n === 0 || !picked);
+    var off = (n === 0 || !picked);
+    $('modeDiag').disabled = off;
+    $('modeSprint').disabled = off;
   }
 
   Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function (btn) {
@@ -178,7 +203,8 @@
     location.href = url;
   }
 
-  $('start').onclick = function () { goTo('diagnose.html', true); };
+  $('modeDiag').onclick = function () { goTo('diagnose.html', true); };
+  $('modeSprint').onclick = function () { goTo('sprint.html', true); };
   $('mine').onclick = function () { goTo('me.html', false); };
 
   // 網址帶了班級代碼就直接進第二步

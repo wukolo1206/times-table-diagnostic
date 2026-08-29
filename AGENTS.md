@@ -2,7 +2,7 @@
 project: 九九乘法熟練度診斷
 category: 康軒數學
 status: 已上線，待實機平板驗證
-version: 0.3.0
+version: 0.4.0
 url: https://wukolo1206.github.io/times-table-diagnostic/
 next_action: 用實機平板＋校內網路完成一次真實作答上傳（CORS 桌機測過不算數），再安排一個班試教
 updated: 2026-08-29
@@ -39,6 +39,7 @@ updated: 2026-08-29
 |---|---|
 | `index.html` | 入口：班級代碼 → 選座號 |
 | `diagnose.html` | 診斷作答（範圍可選、手速校準、中斷續作、提早結束、錯開上傳） |
+| `sprint.html` | 精熟練習：限時搶答、答錯鎖 1.5 秒、三顆星、弱項加權抽題 |
 | `me.html` | 學生個人頁：9×9 熱圖、弱項清單、進步比較 |
 | `teacher.html` | 教師 Dashboard：兩層熱圖、Top 10、單一學生檢視、錯誤型態、家長訊息（複製／列印）、門檻調整、CSV、代作答、刪除 |
 
@@ -75,7 +76,9 @@ updated: 2026-08-29
 
 ## Phase 2 待做
 
-限時衝刺、CPM、弱項練習（`practice.html`）、三榜排行、全班同步衝刺、班級自助建立頁（`admin.html`）。
+~~限時衝刺、CPM、弱項練習~~（v0.4.0 已實作為 `sprint.html`）。
+剩：三榜排行、全班同步衝刺、班級自助建立頁（`admin.html`）、
+設計文件 7.2 的遺忘因子（需快照存每格上次作答日期）。
 
 **精熟練習模式的設計已與使用者討論定案，見 `DECISIONS.md` 的 Phase 2 章節**
 （分數當過關標準而非診斷指標、三顆星個人化門檻、答錯懲罰的兩種取捨、先驗證熱圖再做練習）。

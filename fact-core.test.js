@@ -682,6 +682,118 @@ eq('依「幾的乘法」歸納要練哪些數字', (function () {
   return C.rowsToPractice(cells);
 })(), [{ a: 7, weak: 2, shaky: 0 }, { a: 6, weak: 0, shaky: 1 }]);
 
+
+/* =============================================================
+ * 10. 精熟練習：抽題與星等（DECISIONS Phase 2）
+ * =========================================================== */
+group('10. 精熟練習');
+
+function mkCells(spec) {
+  var cs = [];
+  for (var i = 0; i < 81; i++) {
+    cs.push({ n: 0, correct: 0, med: null, lv: C.LEVEL.UNKNOWN, tent: false, wrong: [] });
+  }
+  Object.keys(spec).forEach(function (k) {
+    cs[k] = { n: 3, correct: 3, med: 1000, lv: spec[k], tent: false, wrong: [] };
+  });
+  return cs;
+}
+function seq(vals) { var i = 0; return function () { return vals[i++ % vals.length]; }; }
+
+eq('抽出指定題數', C.pickSprint(mkCells({}), [7], 20, Math.random).length, 20);
+
+eq('只從選定的列抽', (function () {
+  return C.pickSprint(mkCells({}), [7, 8], 40, Math.random)
+    .every(function (c) { return c.a === 7 || c.a === 8; });
+})(), true);
+
+eq('弱格出現次數明顯多於熟練格（7.2 分層）', (function () {
+  var spec = {};
+  for (var b = 1; b <= 9; b++) spec[C.cellIndex(7, b)] = C.LEVEL.FLUENT;
+  spec[C.cellIndex(7, 8)] = C.LEVEL.WEAK;          // 只有一格弱
+  var qs = C.pickSprint(mkCells(spec), [7], 100, Math.random);
+  var weakHits = qs.filter(function (c) { return c.b === 8; }).length;
+  return weakHits > 100 * 0.5;                      // 弱格應佔一半以上
+})(), true);
+
+eq('保底：不會全部都是弱格（避免太挫折）', (function () {
+  var spec = {};
+  for (var b = 1; b <= 9; b++) spec[C.cellIndex(7, b)] = C.LEVEL.FLUENT;
+  spec[C.cellIndex(7, 8)] = C.LEVEL.WEAK;
+  var qs = C.pickSprint(mkCells(spec), [7], 100, Math.random);
+  return qs.filter(function (c) { return c.b !== 8; }).length > 0;
+})(), true);
+
+eq('沒有熟練格時全部給弱格（第一次使用）', (function () {
+  var qs = C.pickSprint(mkCells({}), [7], 30, Math.random);
+  return qs.length;
+})(), 30);
+
+eq('全部都很熟時照樣抽得出題', (function () {
+  var spec = {};
+  for (var b = 1; b <= 9; b++) spec[C.cellIndex(7, b)] = C.LEVEL.FLUENT;
+  return C.pickSprint(mkCells(spec), [7], 20, Math.random).length;
+})(), 20);
+
+eq('同一格不會在 5 題內重複', (function () {
+  var qs = C.pickSprint(mkCells({}), [7, 8, 9], 60, Math.random);
+  for (var i = 0; i < qs.length; i++) {
+    for (var j = Math.max(0, i - 4); j < i; j++) {
+      if (qs[i].a === qs[j].a && qs[i].b === qs[j].b) return '第 ' + i + ' 題重複';
+    }
+  }
+  return true;
+})(), true);
+
+eq('可用格數少於 5 時放寬約束，不會卡死', (function () {
+  return C.pickSprint(mkCells({}), [7], 30, Math.random).length;
+})(), 30);
+
+eq('沒選任何列時回空陣列', C.pickSprint(mkCells({}), [], 20, Math.random).length, 0);
+
+/* ---- 星等（DECISIONS P2） ---- */
+
+function starArgs(over) {
+  var spec = {};
+  for (var b = 1; b <= 9; b++) spec[C.cellIndex(7, b)] = C.LEVEL.FLUENT;
+  var o = { correct: 20, cpm: 25, cells: mkCells(spec), rows: [7],
+            prevBest: 15, cpmGoal: 30 };
+  Object.keys(over || {}).forEach(function (k) { o[k] = over[k]; });
+  return o;
+}
+
+eq('比上次進步 → 至少 1 顆星', C.starsFor(starArgs({ correct: 20, prevBest: 15 })).progress, true);
+eq('沒進步 → 沒有第 1 顆星', C.starsFor(starArgs({ correct: 12, prevBest: 15 })).progress, false);
+eq('打平不算進步', C.starsFor(starArgs({ correct: 15, prevBest: 15 })).progress, false);
+eq('第一次做就算進步（沒有前次紀錄）',
+   C.starsFor(starArgs({ prevBest: null })).progress, true);
+
+eq('達到 CPM 目標 → 第 2 顆星', C.starsFor(starArgs({ cpm: 30 })).goal, true);
+eq('差一點點不給', C.starsFor(starArgs({ cpm: 29 })).goal, false);
+
+eq('該範圍全綠 → 第 3 顆星', C.starsFor(starArgs()).mastered, true);
+eq('範圍內有一格不是綠的 → 沒有第 3 顆星', (function () {
+  var spec = {};
+  for (var b = 1; b <= 9; b++) spec[C.cellIndex(7, b)] = C.LEVEL.FLUENT;
+  spec[C.cellIndex(7, 8)] = C.LEVEL.SHAKY;
+  return C.starsFor(starArgs({ cells: mkCells(spec) })).mastered;
+})(), false);
+eq('範圍內有未測的格 → 不算精熟', (function () {
+  var spec = {};
+  for (var b = 1; b <= 8; b++) spec[C.cellIndex(7, b)] = C.LEVEL.FLUENT;
+  return C.starsFor(starArgs({ cells: mkCells(spec) })).mastered;
+})(), false);
+
+eq('星數是三項加總', C.starsFor(starArgs({ cpm: 30 })).count, 3);
+eq('全部沒達成是 0 顆', C.starsFor(starArgs({
+  correct: 10, prevBest: 15, cpm: 10,
+  cells: mkCells({}) })).count, 0);
+
+eq('CPM 計算：60 秒答對 25 題 → 25', C.cpmOf(25, 60), 25);
+eq('CPM 計算：30 秒答對 15 題 → 30', C.cpmOf(15, 30), 30);
+eq('CPM 計算：90 秒答對 30 題 → 20', C.cpmOf(30, 90), 20);
+eq('秒數為 0 時回 0，不炸掉', C.cpmOf(10, 0), 0);
+
 /* ===== 結果 ===== */
 console.log('\n' + '='.repeat(50));
 console.log('  PASS ' + pass + '   FAIL ' + fail);

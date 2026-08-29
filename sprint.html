@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>九九乘法｜精熟練習</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .stage { text-align: center; }
+  .topbar { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; }
+  .timer { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .timer.low { color: var(--weak); }
+  .score { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .q { font-size: 60px; font-weight: 700; letter-spacing: 4px; margin: 18px 0 8px; }
+  .ansbox {
+    font-size: 42px; height: 62px; letter-spacing: 6px;
+    border-bottom: 3px solid var(--line); display: inline-block; min-width: 140px;
+  }
+  .fb { height: 32px; font-size: 24px; margin-top: 6px; }
+  .fb.ok { color: var(--fluent); }
+  .fb.no { color: var(--weak); }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .pad button {
+    font-size: 30px; padding: 16px 0; background: #fff; color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  .pad button.wide { font-size: 20px; }
+  .pad button:disabled { background: #fbfaf8; color: #cdc8be; }
+  .pad button.go {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    font-weight: 700; box-shadow: 0 0 0 3px rgba(63, 125, 140, .18);
+  }
+  .locked { opacity: .45; pointer-events: none; }
+  .bigscore { font-size: 52px; font-weight: 700; color: var(--accent); }
+  .stars { font-size: 40px; letter-spacing: 6px; margin: 10px 0; }
+  .starline { font-size: 16px; line-height: 2; text-align: left; display: inline-block; }
+  .starline .got { color: var(--ink); }
+  .starline .miss { color: var(--muted); }
+  .intro { text-align: left; line-height: 1.9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card stage" id="introStage">
+    <h1>精熟練習</h1>
+    <p class="sub" id="who"></p>
+    <p class="intro" id="introText">載入中…</p>
+    <button id="go" disabled>開始</button>
+    <div class="msg" id="introMsg"></div>
+  </div>
+
+  <div class="card stage" id="playStage" hidden>
+    <div class="topbar">
+      <span class="timer" id="timer">60</span>
+      <span class="score" id="score">0 分</span>
+    </div>
+    <div class="q" id="q">7 × 8</div>
+    <div class="ansbox" id="ans">&nbsp;</div>
+    <div class="fb" id="fb"></div>
+    <div class="pad" id="pad"></div>
+  </div>
+
+  <div class="card stage" id="doneStage" hidden>
+    <h1>時間到</h1>
+    <div class="bigscore" id="finalScore">0 分</div>
+    <div class="sub" id="finalDetail"></div>
+    <div class="stars" id="stars"></div>
+    <div class="starline" id="starDetail"></div>
+    <div class="msg" id="upMsg">成績上傳中…</div>
+    <div style="margin-top:16px">
+      <button id="again">再來一次</button>
+      <button id="toMe" class="ghost">看我的紀錄</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="fact-core.js"></script>
+<script src="fact-net.js"></script>
+<script src="fact-quiz.js"></script>
+<script src="config.js"></script>
+<script>
+(function () {
+  'use strict';
+  var C = window.FactCore, N = window.FactNet, Q = window.FactQuiz;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function qs(name) {
+    var m = new RegExp('[?&]' + name + '=([^&]*)').exec(location.search);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  var classCode = qs('cls');
+  var seat = Number(qs('seat'));
+  var rows = C.parseRows(qs('r'));
+  var name = sessionStorage.getItem('ttd_name') || '';
+  if (!classCode || !seat) { location.href = 'index.html'; return; }
+  $('who').textContent = name ? (name + '（' + seat + ' 號）') : (seat + ' 號');
+
+  var LOCK_MS = 1500;      // 答錯的鎖定時間。限時模式裡不罰的話，狂點鍵盤就是最佳策略
+  var POINT = 10;          // 答對得分。答錯不扣分，分數只會往上（DECISIONS P1）
+  var QUEUE = 200;         // 先抽一批題目備用，限時模式不知道會做幾題
+
+  var uploader = N.createUploader({
+    url: window.TTD_GAS_URL,
+    fetchFn: window.fetch.bind(window),
+    storage: window.localStorage
+  });
+
+  var cfg = null, myCells = null, prevBest = null;
+  var state = null, current = null, submitBtn = null, timerId = null, locked = false;
+
+  function uuid() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
+  function show(id) {
+    ['introStage', 'playStage', 'doneStage'].forEach(function (s) {
+      $(s).hidden = (s !== id);
+    });
+  }
+
+  /* ---- 載入個人資料：要靠快照決定抽哪些題 ---- */
+  var url = window.TTD_GAS_URL + '?action=myrecord&cls=' + encodeURIComponent(classCode) +
+            '&seat=' + seat;
+  fetch(url, { redirect: 'follow' }).then(function (r) { return r.json(); })
+    .then(function (r) {
+      if (!r.ok) { $('introText').textContent = '讀不到資料（' + r.code + '）'; return; }
+      cfg = r;
+      myCells = r.all;
+
+      // 進步要跟「同一個範圍」的最佳成績比才有意義
+      var mine = C.formatRows(rows);
+      (r.sprints || []).forEach(function (sp) {
+        if (String(sp.rows) !== mine) return;
+        if (prevBest === null || sp.correct > prevBest) prevBest = sp.correct;
+      });
+
+      var weak = C.weakList(r.all).filter(function (w) {
+        return rows.indexOf(w.a) >= 0;
+      }).length;
+
+      $('introText').innerHTML =
+        '<strong>' + cfg.sprintSec + ' 秒</strong>內答對越多越好，答對一題 ' + POINT + ' 分。<br>' +
+        '答錯不扣分，但會停 1.5 秒，所以<strong>不要亂按</strong>。<br>' +
+        '題目會多出你比較不熟的' +
+        (weak ? ('（這個範圍裡有 ' + weak + ' 題還要加強）') : '') + '。<br>' +
+        (prevBest === null ? '這是你第一次練這個範圍。'
+                           : ('上次最好答對 <strong>' + prevBest + '</strong> 題，這次超過就有星星。'));
+      $('go').disabled = false;
+    })
+    .catch(function () { $('introText').textContent = '連不上伺服器。'; });
+
+  /* ---- 鍵盤 ---- */
+  function updateSubmitBtn() {
+    if (!submitBtn) return;
+    var n = (current && !current.isDone()) ? current.value().length : 0;
+    submitBtn.disabled = (n === 0);
+    submitBtn.classList.toggle('go', n === 1);
+  }
+
+  function buildPad() {
+    var pad = $('pad');
+    pad.innerHTML = '';
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '清除', '0', '送出']
+      .forEach(function (label) {
+        var b = document.createElement('button');
+        b.textContent = label;
+        if (label === '清除' || label === '送出') b.className = 'wide';
+        if (label === '送出') { submitBtn = b; b.disabled = true; }
+        b.onclick = function () {
+          if (locked || !current || current.isDone()) return;
+          if (label === '清除') $('ans').textContent = current.clear() || ' ';
+          else if (label === '送出') current.submit();
+          else $('ans').textContent = current.pressDigit(label) || ' ';
+          updateSubmitBtn();
+        };
+        pad.appendChild(b);
+      });
+  }
+  buildPad();
+
+  /* ---- 開始 ---- */
+  $('go').onclick = function () {
+    state = {
+      sessionId: uuid(),
+      queue: C.pickSprint(myCells, rows, QUEUE, Math.random),
+      idx: 0, results: [], correct: 0,
+      startedAt: new Date().toISOString(),
+      endAt: Date.now() + cfg.sprintSec * 1000
+    };
+    show('playStage');
+    tick();
+    timerId = setInterval(tick, 200);
+    nextQuestion();
+  };
+
+  function tick() {
+    var left = Math.max(0, Math.ceil((state.endAt - Date.now()) / 1000));
+    $('timer').textContent = left;
+    $('timer').className = 'timer' + (left <= 10 ? ' low' : '');
+    if (left <= 0) finish();
+  }
+
+  function nextQuestion() {
+    if (!state || Date.now() >= state.endAt) return;
+    if (state.idx >= state.queue.length) {
+      state.queue = state.queue.concat(C.pickSprint(myCells, rows, QUEUE, Math.random));
+    }
+    var cell = state.queue[state.idx];
+    $('q').textContent = cell.a + ' × ' + cell.b;
+    $('ans').textContent = ' ';
+    $('fb').textContent = '';
+    $('fb').className = 'fb';
+
+    current = Q.createQuestion({
+      cell: cell,
+      timeoutMs: 30000,      // 限時模式本來就有總時限，單題不再另外跳題
+      onFinish: function (r) {
+        state.results.push(r);
+        state.idx++;
+        if (r.ok === 1) {
+          state.correct++;
+          $('score').textContent = (state.correct * POINT) + ' 分';
+          $('fb').textContent = '＋' + POINT;
+          $('fb').className = 'fb ok';
+          setTimeout(nextQuestion, 200);
+        } else {
+          // 答錯不扣分，改用時間懲罰——分數只往上，但亂按會很虧
+          $('fb').textContent = '✗';
+          $('fb').className = 'fb no';
+          locked = true;
+          $('pad').classList.add('locked');
+          setTimeout(function () {
+            locked = false;
+            $('pad').classList.remove('locked');
+            nextQuestion();
+          }, LOCK_MS);
+        }
+        updateSubmitBtn();
+      }
+    });
+    current.start();
+    updateSubmitBtn();
+  }
+
+  /* ---- 結束 ---- */
+  function finish() {
+    if (!state || state.done) return;
+    state.done = true;
+    if (timerId) { clearInterval(timerId); timerId = null; }
+    show('doneStage');
+
+    var cpm = C.cpmOf(state.correct, cfg.sprintSec);
+    $('finalScore').textContent = (state.correct * POINT) + ' 分';
+    $('finalDetail').textContent = '答對 ' + state.correct + ' 題，每分鐘 ' + cpm + ' 題';
+
+    var st = C.starsFor({
+      correct: state.correct, cpm: cpm, cells: myCells, rows: rows,
+      prevBest: prevBest, cpmGoal: cfg.cpmGoal
+    });
+    $('stars').textContent = '★'.repeat(st.count) + '☆'.repeat(3 - st.count);
+    $('starDetail').innerHTML =
+      line(st.progress, prevBest === null ? '第一次挑戰' : ('比上次的 ' + prevBest + ' 題進步')) +
+      line(st.goal, '每分鐘達到 ' + cfg.cpmGoal + ' 題（目前 ' + cpm + '）') +
+      line(st.mastered, '這個範圍全部都很熟了');
+
+    // 只送有作答的題目
+    if (!state.results.length) {
+      $('upMsg').textContent = '這次沒有作答，不用上傳。';
+      return;
+    }
+    upload(cpm);
+  }
+
+  function line(got, text) {
+    return '<div class="' + (got ? 'got' : 'miss') + '">' +
+           (got ? '★ ' : '☆ ') + text + '</div>';
+  }
+
+  function upload(cpm) {
+    var payload = {
+      sessionId: state.sessionId,
+      classCode: classCode,
+      seat: seat,
+      name: name,
+      mode: 'sprint',
+      context: 'class',
+      status: 'complete',
+      answeredAt: state.startedAt,
+      config: { sv: 1, thresholdMs: C.DEFAULT_THRESHOLD_MS,
+                limitSec: cfg.sprintSec, baselineMs: null,
+                rows: C.formatRows(rows) },
+      detail: C.encodeDetail(state.results)
+    };
+    setTimeout(function () {
+      uploader.flush().then(function () {
+        return uploader.send(payload);
+      }).then(function (r) {
+        if (r.status === 'sent') { $('upMsg').textContent = '成績已上傳。'; }
+        else if (r.status === 'rejected') {
+          $('upMsg').textContent = '上傳被拒（' + r.code + '），請告訴老師。';
+          $('upMsg').className = 'msg err';
+        } else {
+          $('upMsg').textContent = '暫時連不上，資料已存在這台平板，下次開啟會自動補送。';
+        }
+      });
+    }, N.uploadDelayMs(seat));
+  }
+
+  $('again').onclick = function () { location.reload(); };
+  $('toMe').onclick = function () {
+    location.href = 'me.html?cls=' + encodeURIComponent(classCode) + '&seat=' + seat;
+  };
+
+  uploader.flush();
+})();
+</script>
+</body>
+</html>

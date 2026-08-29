@@ -222,7 +222,8 @@ function writeSession(p) {
       correct,
       timeouts,
       med === null ? '' : med,
-      '',                               // CPM：Phase 2 才有
+      (p.mode === 'sprint' && p.config && p.config.limitSec)
+        ? FactCore.cpmOf(correct, Number(p.config.limitSec)) : '',
       JSON.stringify(p.detail)
     ]);
     markSeen_(p.sessionId);
@@ -390,7 +391,9 @@ function apiConfig(code) {
   var cls = getClass_(code);
   if (!cls || !cls.enabled) return { ok: false, code: 'CLASS_NOT_FOUND' };
   return { ok: true, className: cls.name, thresholdMs: cls.thresholdMs,
-           seatOnly: cls.seatOnly };
+           seatOnly: cls.seatOnly,
+           sprintSec: Number(cls.sprintSec) || 60,     // 精熟練習用
+           cpmGoal: Number(cls.cpmGoal) || 30 };
 }
 
 /** 單一學生的快照與診斷場次摘要。 */
@@ -418,23 +421,30 @@ function apiMyRecord(code, seat) {
     ok: true,
     name: cls.seatOnly ? '' : stu.name,
     thresholdMs: cls.thresholdMs,
+    sprintSec: Number(cls.sprintSec) || 60,
+    cpmGoal: Number(cls.cpmGoal) || 30,
     base: JSON.parse(v[3]),
     all: JSON.parse(v[4]),
-    diagnostics: diagnosticSummaries_(code, seat)
+    diagnostics: sessionSummaries_(code, seat, 'diagnostic'),
+    sprints: sessionSummaries_(code, seat, 'sprint')
   };
 }
 
-/** 診斷場次的簡要清單，供個人頁做兩次比較。 */
-function diagnosticSummaries_(code, seat) {
+/** 某模式場次的簡要清單。診斷用來做兩次比較，衝刺用來判斷有沒有進步。 */
+function sessionSummaries_(code, seat, mode) {
   var rows = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
   var out = [];
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][4]) !== String(code)) continue;
     if (Number(rows[i][5]) !== Number(seat)) continue;
-    if (rows[i][7] !== 'diagnostic') continue;
+    if (rows[i][7] !== mode) continue;
+    var cfg = {};
+    try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
     out.push({
       answeredAt: String(rows[i][1]), total: rows[i][11],
-      correct: rows[i][12], timeouts: rows[i][13], med: rows[i][14]
+      correct: rows[i][12], timeouts: rows[i][13], med: rows[i][14],
+      cpm: rows[i][15] === '' ? null : Number(rows[i][15]),
+      rows: cfg.rows || ''            // 進步要跟「同一個範圍」比才有意義
     });
   }
   out.sort(function (x, y) { return x.answeredAt < y.answeredAt ? -1 : 1; });
