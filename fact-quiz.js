@@ -31,6 +31,10 @@
   function createQuestion(opt) {
     var cell = opt.cell;
     var timeoutMs = opt.timeoutMs || C.TIMEOUT_MS;
+    // 打滿答案的位數就自動送出：2×3 打 6 就走，7×8 要兩位。
+    // 代價：孩子若把 2×3 想成 12，打「1」當下就被送出，記錄不到他寫的是 12。
+    // 只影響答案為一位數的 25 格，換取整場少按幾十次送出鍵。
+    var expectedLen = String(cell.a * cell.b).length;
 
     var shownAt = null;
     var firstKeyAt = null;
@@ -103,7 +107,7 @@
       }
       buffer += String(d);
       var out = buffer;
-      if (buffer.length === 2) finish(false);     // 兩位數輸入滿即自動送出
+      if (buffer.length >= expectedLen) finish(false);
       return out;
     }
 

@@ -125,6 +125,13 @@ def route_gas(route, request):
     route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
 
 
+def wrong_answer(a, b):
+    """位數要跟正解一樣，否則會提早自動送出、打到下一題去。"""
+    exp = str(a * b)
+    w = '9' * len(exp)
+    return '8' * len(exp) if w == exp else w
+
+
 def test_index(pg):
     print('== index.html')
     pg.goto(BASE + 'index.html?cls=TEST01')
@@ -184,14 +191,16 @@ def test_diagnose(pg):
     ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.disabled') is True,
        '還沒輸入時送出鍵是停用的')
 
-    # 第 1 題故意答錯（99 一定錯，兩位數自動送出）
+    # 第 1 題故意答錯（99 一定錯；7 的乘法答案都兩位，打滿兩位自動送出）
     q = pg.inner_text('#q')
     a, b = [int(x) for x in q.replace('×', ' ').split()]
     ck(a == 7, '題目確實只出 7 的乘法')
-    pg.click('.pad button:text-is("9")')
-    ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.classList.contains("go")') is True,
-       '輸入一位數後送出鍵會亮起（提示要按這裡）')
-    pg.click('.pad button:text-is("9")')
+    w = wrong_answer(a, b)
+    pg.click('.pad button:text-is("%s")' % w[0])
+    if len(w) > 1:
+        ck(pg.eval_on_selector('.pad button:text-is("送出")', 'e=>e.classList.contains("go")') is True,
+           '兩位數答案打了一位時，送出鍵會亮（想只填一位可以按）')
+        pg.click('.pad button:text-is("%s")' % w[1])
     pg.wait_for_selector('.fb.no', timeout=3000)
     ck(pg.inner_text('#fb') == '✗', '答錯只顯示叉，不顯示正確答案（8.1）')
     pg.wait_for_function('document.getElementById("prog").textContent === "2 / 9"', timeout=3000)
@@ -216,9 +225,7 @@ def test_diagnose(pg):
         a, b = [int(x) for x in pg.inner_text('#q').replace('×', ' ').split()]
         ans = str(a * b)
         for d in ans:
-            pg.click('.pad button:text-is("%s")' % d)
-        if len(ans) == 1:
-            pg.click('.pad button:text-is("送出")')
+            pg.click('.pad button:text-is("%s")' % d)   # 打滿答案位數就自動送出
 
     pg.wait_for_selector('#doneStage:not([hidden])', timeout=15000)
     ck('共 9 題' in pg.inner_text('#doneSummary'), '完成畫面題數正確')
@@ -237,6 +244,37 @@ def test_diagnose(pg):
         ck(pl['status'] == 'complete', '狀態為 complete')
         ck(pl['config'].get('rows') == '7', '設定裡記錄了測驗範圍')
         ck(all(r[0] == 7 for r in pl['detail']), '上傳的題目都是 7 的乘法')
+
+
+def test_autosubmit(pg):
+    """答案是一位數時，按一個數字就自動送出。"""
+    print('== 一位數自動送出（只測 1 的乘法）')
+    pg.goto(BASE + 'diagnose.html?cls=TEST01&seat=1&r=1')
+    pg.evaluate('localStorage.clear()')
+    pg.reload()
+    pg.click('#toBaseline')
+    for i in range(5):
+        pg.wait_for_selector('.dot.go', timeout=8000)
+        pg.click('#dot')
+        if i < 4:
+            pg.wait_for_selector('.dot:not(.go)', timeout=3000)
+    pg.wait_for_selector('#quizStage:not([hidden])', timeout=8000)
+
+    # 找一題答案是一位數的（1 的乘法：1×1~1×9，前九題有八題是一位數）
+    for _ in range(9):
+        a, b = [int(x) for x in pg.inner_text('#q').replace('×', ' ').split()]
+        if a * b < 10:
+            break
+        for d in wrong_answer(a, b):
+            pg.click('.pad button:text-is("%s")' % d)
+        pg.wait_for_timeout(600)
+
+    before = pg.inner_text('#prog')
+    pg.click('.pad button:text-is("%d")' % (a * b))
+    pg.wait_for_function('document.getElementById("prog").textContent !== "%s"' % before,
+                         timeout=4000)
+    ck(True, '一位數答案按一下就送出，不用再按送出鍵（%s → %s）'
+       % (before, pg.inner_text('#prog')))
 
 
 def test_partial(pg):
@@ -264,12 +302,9 @@ def test_partial(pg):
         ans = str(a * b)
         for d in ans:
             pg.click('.pad button:text-is("%s")' % d)
-        if len(ans) == 1:
-            pg.click('.pad button:text-is("送出")')
 
     pg.wait_for_function('document.getElementById("prog").textContent === "3 / 9"', timeout=6000)
-    pg.once('dialog', lambda d: d.accept())
-    pg.click('#stopEarly')
+    pg.click('#stopEarly')   # dialog 由 test_diagnose 裝的常駐 handler 接受
     pg.wait_for_selector('#doneStage:not([hidden])', timeout=10000)
     pg.wait_for_function('document.getElementById("upMsg").textContent.indexOf("上傳中") === -1',
                          timeout=20000)
@@ -309,16 +344,15 @@ def test_sprint(pg):
     ans = str(a * b)
     for d in ans:
         pg.click('.pad button:text-is("%s")' % d)
-    if len(ans) == 1:
-        pg.click('.pad button:text-is("送出")')
     pg.wait_for_function('document.getElementById("score").textContent === "10 分"',
                          timeout=4000)
     ck(True, '答對加 10 分')
 
     # 答錯 → 不扣分但鍵盤鎖住
     pg.wait_for_timeout(400)
-    pg.click('.pad button:text-is("9")')
-    pg.click('.pad button:text-is("9")')
+    a2, b2 = [int(x) for x in pg.inner_text('#q').replace('×', ' ').split()]
+    for d in wrong_answer(a2, b2):
+        pg.click('.pad button:text-is("%s")' % d)
     pg.wait_for_selector('.fb.no', timeout=4000)
     ck(pg.inner_text('#score') == '10 分', '答錯不扣分（分數只往上）')
     ck(pg.eval_on_selector('#pad', 'e=>e.classList.contains("locked")') is True,
@@ -336,6 +370,7 @@ def test_sprint(pg):
     ck('全部都很熟' in detail, '第三顆星說明範圍全綠')
     ck(pg.is_visible('#goalBox'), '結束畫面顯示還差幾格')
     ck('7 的乘法' in pg.inner_text('#goalBox'), '進度框寫出是哪個數字')
+    ck('點亮徽章' in pg.inner_text('#goalBox'), '單一數字說「點亮徽章」')
 
     pg.wait_for_function('document.getElementById("upMsg").textContent.indexOf("上傳中") === -1',
                          timeout=20000)
@@ -471,6 +506,7 @@ def main():
         try:
             test_index(pg)
             test_diagnose(pg)
+            test_autosubmit(pg)
             test_partial(pg)
             test_sprint(pg)
             test_me(pg)

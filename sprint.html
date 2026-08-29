@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>九九乘法｜精熟練習</title>
-<link rel="stylesheet" href="style.css?v=202608291535">
+<link rel="stylesheet" href="style.css?v=202608291615">
 <style>
   .stage { text-align: center; }
   .topbar { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; }
@@ -89,10 +89,10 @@
 
 </div>
 
-<script src="fact-core.js?v=202608291535"></script>
-<script src="fact-net.js?v=202608291535"></script>
-<script src="fact-quiz.js?v=202608291535"></script>
-<script src="config.js?v=202608291535"></script>
+<script src="fact-core.js?v=202608291615"></script>
+<script src="fact-net.js?v=202608291615"></script>
+<script src="fact-quiz.js?v=202608291615"></script>
+<script src="config.js?v=202608291615"></script>
 <script>
 (function () {
   'use strict';
@@ -284,20 +284,7 @@
       $('pb').hidden = false;
     }
 
-    // 還差幾格——快完成的東西最有拉力
-    var pr = C.progressOf(myCells, rows);
-    if (pr.total) {
-      var pct = Math.round(pr.green / pr.total * 100);
-      var label = rows.length === 1 ? (rows[0] + ' 的乘法') : (rows.join('、') + ' 的乘法');
-      $('goalBox').innerHTML = pr.remain === 0
-        ? ('<strong>' + label + '已經全部練熟了。</strong><br>可以挑戰別的數字了。')
-        : ('<strong>' + label + '</strong>　還差 <strong>' + pr.remain +
-           '</strong> 格就能點亮徽章<br>' +
-           '<span class="sub">目前 ' + pr.green + ' / ' + pr.total + ' 題已經很熟</span>' +
-           '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
-           '<span class="sub">（練習成績要等一下才會反映到這裡）</span>');
-      $('goalBox').hidden = false;
-    }
+    renderGoal(myCells, true);
     $('starDetail').innerHTML =
       line(st.progress, prevBest === null ? '第一次挑戰' : ('比上次的 ' + prevBest + ' 題進步')) +
       line(st.goal, '每分鐘達到 ' + cfg.cpmGoal + ' 題（目前 ' + cpm + '）') +
@@ -309,6 +296,43 @@
       return;
     }
     upload(cpm);
+  }
+
+  /**
+   * 還差幾格——快完成的東西最有拉力。
+   * pending=true 代表這場的成績還沒算進來（伺服器要重算快照），先標明；
+   * 上傳成功後會重抓一次，換成真正的最新進度。
+   */
+  function renderGoal(cells, pending) {
+    var pr = C.progressOf(cells, rows);
+    if (!pr.total) return;
+    var label = rows.length === 9 ? '全部九九乘法'
+              : rows.length === 1 ? (rows[0] + ' 的乘法')
+              : (rows.join('、') + ' 的乘法');
+    var badgeWord = rows.length === 1 ? '點亮徽章' : ('點亮這 ' + rows.length + ' 枚徽章');
+
+    if (pr.remain === 0) {
+      $('goalBox').innerHTML = '<strong>' + label + '已經全部練熟了。</strong><br>' +
+                               '可以挑戰別的數字了。';
+    } else {
+      var pct = Math.round(pr.green / pr.total * 100);
+      $('goalBox').innerHTML =
+        '<strong>' + label + '</strong>　還差 <strong>' + pr.remain + '</strong> 格就能' +
+        badgeWord + '<br>' +
+        '<span class="sub">目前 ' + pr.green + ' / ' + pr.total + ' 題已經很熟</span>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        (pending ? '<span class="sub">（這次的成績還在計算，稍後會更新）</span>' : '');
+    }
+    $('goalBox').hidden = false;
+  }
+
+  /** 上傳成功後重抓一次，讓進度立刻反映這場的成績。 */
+  function refreshGoal() {
+    var u = window.TTD_GAS_URL + '?action=myrecord&cls=' + encodeURIComponent(classCode) +
+            '&seat=' + seat;
+    fetch(u, { redirect: 'follow' }).then(function (r) { return r.json(); })
+      .then(function (r) { if (r.ok) renderGoal(r.all, false); })
+      .catch(function () { /* 抓不到就維持原本的顯示 */ });
   }
 
   function line(got, text) {
@@ -335,7 +359,10 @@
       uploader.flush().then(function () {
         return uploader.send(payload);
       }).then(function (r) {
-        if (r.status === 'sent') { $('upMsg').textContent = '成績已上傳。'; }
+        if (r.status === 'sent') {
+          $('upMsg').textContent = '成績已上傳。';
+          refreshGoal();
+        }
         else if (r.status === 'rejected') {
           $('upMsg').textContent = '上傳被拒（' + r.code + '），請告訴老師。';
           $('upMsg').className = 'msg err';
