@@ -60,6 +60,7 @@ updated: 2026-08-29
 | `tools/setup_sheet.py` | 建立／補建試算表四張表（只新增，不覆寫既有資料） |
 | `tools/deploy_gas.py` | 建立 Apps Script 專案、上傳程式碼、更新部署，並回寫 `config.js` |
 | `tools/loadtest.py` | 33 筆併發上傳與去重驗證 |
+| `tools/stamp_assets.py` | **改完前端一定要跑**：在 js/css 參照加版本戳記，否則平板會繼續跑舊版 |
 | `sync-core-to-gas.py` | 由 `fact-core.js` 產生 `gas/FactCore.gs` |
 
 ## 不能動的地方
@@ -72,6 +73,8 @@ updated: 2026-08-29
 - **查詢參數不可叫 `c`**：GAS 保留該名稱，帶 `c=` 的請求進不到 `doGet` 就被回 400，
   錯誤訊息卻長得像部署失敗。班級代碼一律用 `cls`（詳見 PITFALLS）
 - **7×8 與 8×7 是不同的格**：不可為了省題數合併——學生只背了一個方向的口訣
+- **改完前端要跑 `python tools/stamp_assets.py`**：不蓋版本戳記的話，
+  GitHub Pages 與瀏覽器的快取會讓學生平板繼續跑舊版，而且沒有任何錯誤訊息
 - **repo 內不得有任何學生個資**：GitHub Pages 是公開的，名單只存在 Sheets
 
 ## Phase 2 待做

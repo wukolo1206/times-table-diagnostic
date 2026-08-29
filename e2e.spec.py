@@ -381,6 +381,9 @@ def test_teacher(pg):
     tops = pg.eval_on_selector_all('#top li', 'e=>e.map(x=>x.textContent)')
     ck(len(tops) >= 1 and tops[0].startswith('7 × 8'), 'Top 10 第一名為 7×8（score 最高）')
     ck(len(tops) >= 2 and tops[1].startswith('6 × 9'), 'Top 10 第二名為 6×9')
+    # 排名編號若緊貼算式，「1. 5 × 2」會被讀成小數 1.5
+    ck(not tops[0][0].isdigit() or ' × ' in tops[0][:6],
+       '排名編號不會和算式黏成小數')
 
     before = pg.eval_on_selector_all('td.weak', 'e=>e.length')
     pg.select_option('#thr', '2000')

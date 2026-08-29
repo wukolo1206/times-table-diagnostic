@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>九九乘法診斷</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=202608291239">
 <style>
   .row-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; max-width: 460px; }
   .row-btn {
@@ -57,6 +57,7 @@
 
     <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
       <div style="font-size:17px;font-weight:700;margin-bottom:8px">要做什麼？</div>
+      <p class="sub" id="modeHint" style="margin:0 0 8px">先在上面點選要測的數字。</p>
       <div class="mode-grid">
         <button class="mode-btn" id="modeDiag">
           <span class="mt">診斷</span>
@@ -74,9 +75,9 @@
   </div>
 </div>
 
-<script src="fact-core.js"></script>
-<script src="fact-net.js"></script>
-<script src="config.js"></script>
+<script src="fact-core.js?v=202608291239"></script>
+<script src="fact-net.js?v=202608291239"></script>
+<script src="config.js?v=202608291239"></script>
 <script>
 (function () {
   'use strict';
@@ -178,6 +179,7 @@
     var off = (n === 0 || !picked);
     $('modeDiag').disabled = off;
     $('modeSprint').disabled = off;
+    $('modeHint').hidden = !off;
   }
 
   Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function (btn) {
