@@ -3,7 +3,7 @@
  * 不要手動編輯這個檔案。改 fact-core.js 之後執行：
  *     python sync-core-to-gas.py
  *
- * 來源雜湊：d0f4c37ebe806eb4
+ * 來源雜湊：511bd97c3a77784c
  */
 var FactCore = (function () {
   'use strict';
@@ -675,6 +675,7 @@ var FactCore = (function () {
     SPARSE_RATIO: SPARSE_RATIO,
 
     isValid: isValid,
+    emptyCells: emptyCells,
     badgesOf: badgesOf,
     progressOf: progressOf,
     pickSprint: pickSprint,

@@ -840,6 +840,13 @@ eq('徽章帶著綠格數，可以做進度條', (function () {
   return C.badgesOf(cs)[2];
 })(), { a: 3, green: 2, total: 9, done: false });
 
+eq('空白 81 格全為未測', (function () {
+  var e = C.emptyCells();
+  return [e.length, e[0].lv, e[0].n];
+})(), [81, C.LEVEL.UNKNOWN, 0]);
+eq('空白格不會被誤判為有資料', C.classCoverage([{ base: C.emptyCells(), all: C.emptyCells() }], 'base'),
+   { done: 0, total: 1 });
+
 eq('範圍進度：全綠', C.progressOf(allFluentExcept([]), [7]),
    { green: 9, total: 9, remain: 0 });
 eq('範圍進度：差一格', C.progressOf(allFluentExcept([C.cellIndex(7, 8)]), [7]),

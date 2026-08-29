@@ -678,6 +678,7 @@
     SPARSE_RATIO: SPARSE_RATIO,
 
     isValid: isValid,
+    emptyCells: emptyCells,
     badgesOf: badgesOf,
     progressOf: progressOf,
     pickSprint: pickSprint,

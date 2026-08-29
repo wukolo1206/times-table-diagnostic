@@ -116,7 +116,10 @@ def route_gas(route, request):
                          "lastAt": "2026-09-01T01:00:00Z"},
                         {"seat": 2, "name": "小華", "base": good_cells,
                          "all": good_cells, "sessions": 1, "stale": False,
-                         "lastAt": "2026-09-01T01:00:00Z"}]}
+                         "lastAt": "2026-09-01T01:00:00Z"},
+                        {"seat": 3, "name": "小美", "base": empty_cells(),
+                         "all": empty_cells(), "sessions": 0, "stale": False,
+                         "lastAt": ""}]}
     else:
         body = {"ok": True}
     route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
@@ -377,6 +380,11 @@ def test_teacher(pg):
     pg.click('#login')
     pg.wait_for_selector('#board:not([hidden])')
     ck(pg.eval_on_selector_all('table.heat td', 'e=>e.length') == 81, '班級熱圖 81 格')
+    # 沒做過的學生也要算進分母，否則「樣本不足」的保護會失效
+    ck('3 人中 2 人有資料' in pg.inner_text('#coverage'),
+       '涵蓋率把沒做過的人算進分母：' + pg.inner_text('#coverage').strip())
+    ck(pg.eval_on_selector_all('td.sparse', 'e=>e.length') > 0,
+       '只有 2/3 做過，格子要標斜紋提醒別當結論')
 
     tops = pg.eval_on_selector_all('#top li', 'e=>e.map(x=>x.textContent)')
     ck(len(tops) >= 1 and tops[0].startswith('7 × 8'), 'Top 10 第一名為 7×8（score 最高）')

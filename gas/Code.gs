@@ -481,19 +481,43 @@ function apiDashboard(code, pin) {
   if (!chk.ok) return chk;
   var cls = chk.cls;
 
-  var rows = sheet_(T_SNAPSHOT, snapshotHeaders()).getDataRange().getValues();
+  // 快照只有「做過測驗的人」才有列。若直接拿它當全班，
+  // 老師會看不到誰還沒做，而且「有效樣本不足就標斜紋」的保護會失效——
+  // 32 人只有 1 人做過時，系統會以為 100% 都做了。一律以學生名單為準。
+  var snapRows = sheet_(T_SNAPSHOT, snapshotHeaders()).getDataRange().getValues();
+  var bySeat = {};
+  for (var i = 1; i < snapRows.length; i++) {
+    if (String(snapRows[i][0]) !== String(code)) continue;
+    bySeat[Number(snapRows[i][1])] = snapRows[i];
+  }
+
+  var roster = sheet_(T_STUDENT, studentHeaders()).getDataRange().getValues();
   var students = [];
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) !== String(code)) continue;
-    students.push({
-      seat: Number(rows[i][1]),
-      name: cls.seatOnly ? '' : rows[i][2],
-      base: JSON.parse(rows[i][3]),
-      all: JSON.parse(rows[i][4]),
-      sessions: rows[i][5],
-      lastAt: String(rows[i][6] || ''),   // 家長通知要寫測驗日期
-      stale: rows[i][8] === true
-    });
+  for (var k = 1; k < roster.length; k++) {
+    if (String(roster[k][0]) !== String(code)) continue;
+    var seat = Number(roster[k][1]);
+    var r = bySeat[seat];
+    if (r) {
+      students.push({
+        seat: seat,
+        name: cls.seatOnly ? '' : r[2],
+        base: JSON.parse(r[3]),
+        all: JSON.parse(r[4]),
+        sessions: r[5],
+        lastAt: String(r[6] || ''),   // 家長通知要寫測驗日期
+        stale: r[8] === true
+      });
+    } else {
+      students.push({
+        seat: seat,
+        name: cls.seatOnly ? '' : roster[k][2],
+        base: FactCore.emptyCells(),
+        all: FactCore.emptyCells(),
+        sessions: 0,
+        lastAt: '',
+        stale: false
+      });
+    }
   }
   students.sort(function (x, y) { return x.seat - y.seat; });
 
