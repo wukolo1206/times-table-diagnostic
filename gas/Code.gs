@@ -421,7 +421,7 @@ function apiConfig(code) {
   if (!cls || !cls.enabled) return { ok: false, code: 'CLASS_NOT_FOUND' };
   return { ok: true, className: cls.name, thresholdMs: cls.thresholdMs,
            seatOnly: cls.seatOnly,
-           sprintSec: Number(cls.sprintSec) || 60,     // 精熟練習用
+           sprintSec: Number(cls.sprintSec) || 180,    // 精熟練習用，預設三分鐘
            cpmGoal: Number(cls.cpmGoal) || 30 };
 }
 
@@ -450,7 +450,7 @@ function apiMyRecord(code, seat) {
     ok: true,
     name: cls.seatOnly ? '' : stu.name,
     thresholdMs: cls.thresholdMs,
-    sprintSec: Number(cls.sprintSec) || 60,
+    sprintSec: Number(cls.sprintSec) || 180,
     cpmGoal: Number(cls.cpmGoal) || 30,
     base: JSON.parse(v[3]),
     all: JSON.parse(v[4]),
@@ -473,7 +473,8 @@ function sessionSummaries_(code, seat, mode) {
       answeredAt: String(rows[i][1]), total: rows[i][11],
       correct: rows[i][12], timeouts: rows[i][13], med: rows[i][14],
       cpm: rows[i][15] === '' ? null : Number(rows[i][15]),
-      rows: cfg.rows || ''            // 進步要跟「同一個範圍」比才有意義
+      rows: cfg.rows || '',           // 進步要跟「同一個範圍」比才有意義
+      limitSec: cfg.limitSec || null  // 也要同樣長度才比——3 分鐘當然比 1 分鐘答得多
     });
   }
   out.sort(function (x, y) { return x.answeredAt < y.answeredAt ? -1 : 1; });

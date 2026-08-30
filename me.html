@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>我的九九乘法</title>
-<link rel="stylesheet" href="style.css?v=202608302100">
+<link rel="stylesheet" href="style.css?v=202608302118">
 <style>
   table.heat { margin: 8px auto; }
   table.heat th, table.heat td { width: 40px; height: 40px; font-size: 13px; }
@@ -79,8 +79,8 @@
   </div>
 </div>
 
-<script src="fact-core.js?v=202608302100"></script>
-<script src="config.js?v=202608302100"></script>
+<script src="fact-core.js?v=202608302118"></script>
+<script src="config.js?v=202608302118"></script>
 <script>
 (function () {
   'use strict';
@@ -187,14 +187,16 @@
 
   function renderBest(sprints) {
     if (!sprints || !sprints.length) return;
-    var bestCorrect = 0, bestCpm = 0;
+    var bestCorrect = 0, bestCpm = 0, bestSec = null;
     sprints.forEach(function (sp) {
-      if (sp.correct > bestCorrect) bestCorrect = sp.correct;
+      if (sp.correct > bestCorrect) { bestCorrect = sp.correct; bestSec = sp.limitSec; }
       if (sp.cpm && sp.cpm > bestCpm) bestCpm = sp.cpm;
     });
+    // 標明是幾分鐘拿的——3 分鐘的分數本來就會比 1 分鐘高，不標會誤導
+    var secLabel = bestSec ? (bestSec % 60 === 0 ? (bestSec / 60 + ' 分鐘') : (bestSec + ' 秒')) : '';
     var box = $('best');
     box.innerHTML = '';
-    [['最高分', (bestCorrect * 10) + ' 分'],
+    [['最高分' + (secLabel ? '（' + secLabel + '）' : ''), (bestCorrect * 10) + ' 分'],
      ['最快速度', bestCpm + ' 題／分'],
      ['練習次數', sprints.length + ' 次']].forEach(function (p) {
       var d = document.createElement('div');

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>九九乘法｜精熟練習</title>
-<link rel="stylesheet" href="style.css?v=202608302100">
+<link rel="stylesheet" href="style.css?v=202608302118">
 <style>
   .stage { text-align: center; }
   .topbar { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; }
@@ -37,6 +37,11 @@
   .starline .got { color: var(--ink); }
   .starline .miss { color: var(--muted); }
   .intro { text-align: left; line-height: 1.9; }
+  .time-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+               gap: 8px; max-width: 400px; margin: 0 auto; }
+  .time-btn { background: #fff; border: 1px solid var(--line); color: var(--muted);
+              padding: 14px 4px; font-size: 17px; font-weight: 700; }
+  .time-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .pbbanner {
     background: var(--fluent); color: #fff; border-radius: 12px;
     padding: 12px; font-size: 18px; font-weight: 700; margin-bottom: 12px;
@@ -57,13 +62,18 @@
     <h1>精熟練習</h1>
     <p class="sub" id="who"></p>
     <p class="intro" id="introText">載入中…</p>
+    <p class="intro sub" id="weakNote" style="margin-top:-8px"></p>
+    <div id="timePick" hidden style="margin:16px 0">
+      <div style="font-size:16px;font-weight:700;margin-bottom:8px">要練幾分鐘？</div>
+      <div class="time-grid" id="timeBtns"></div>
+    </div>
     <button id="go" disabled>開始</button>
     <div class="msg" id="introMsg"></div>
   </div>
 
   <div class="card stage" id="playStage" hidden>
     <div class="topbar">
-      <span class="timer" id="timer">60</span>
+      <span class="timer" id="timer">—</span>
       <span class="score" id="score">0 分</span>
     </div>
     <div class="q" id="q">7 × 8</div>
@@ -89,10 +99,10 @@
 
 </div>
 
-<script src="fact-core.js?v=202608302100"></script>
-<script src="fact-net.js?v=202608302100"></script>
-<script src="fact-quiz.js?v=202608302100"></script>
-<script src="config.js?v=202608302100"></script>
+<script src="fact-core.js?v=202608302118"></script>
+<script src="fact-net.js?v=202608302118"></script>
+<script src="fact-quiz.js?v=202608302118"></script>
+<script src="config.js?v=202608302118"></script>
 <script>
 (function () {
   'use strict';
@@ -122,6 +132,8 @@
   });
 
   var cfg = null, myCells = null, prevBest = null;
+  var limitSec = 180;                       // 預設三分鐘，載入班級設定後覆蓋
+  var TIME_CHOICES = [60, 120, 180, 300];   // 1／2／3／5 分鐘
   var state = null, current = null, submitBtn = null, timerId = null, locked = false;
 
   function uuid() {
@@ -146,27 +158,68 @@
       cfg = r;
       myCells = r.all;
 
-      // 進步要跟「同一個範圍」的最佳成績比才有意義
-      var mine = C.formatRows(rows);
-      (r.sprints || []).forEach(function (sp) {
-        if (String(sp.rows) !== mine) return;
-        if (prevBest === null || sp.correct > prevBest) prevBest = sp.correct;
-      });
+      limitSec = Number(r.sprintSec) || 180;
+      buildTimeButtons();
 
       var weak = C.weakList(r.all).filter(function (w) {
         return rows.indexOf(w.a) >= 0;
       }).length;
+      $('weakNote').textContent = weak
+        ? ('這個範圍裡有 ' + weak + ' 題還要加強，題目會多出這些。')
+        : '題目會多出你比較不熟的。';
 
-      $('introText').innerHTML =
-        '<strong>' + cfg.sprintSec + ' 秒</strong>內答對越多越好，答對一題 ' + POINT + ' 分。<br>' +
-        '答錯不扣分，但會停 1.5 秒，所以<strong>不要亂按</strong>。<br>' +
-        '題目會多出你比較不熟的' +
-        (weak ? ('（這個範圍裡有 ' + weak + ' 題還要加強）') : '') + '。<br>' +
-        (prevBest === null ? '這是你第一次練這個範圍。'
-                           : ('上次最好答對 <strong>' + prevBest + '</strong> 題，這次超過就有星星。'));
+      refreshIntro();
       $('go').disabled = false;
     })
     .catch(function () { $('introText').textContent = '連不上伺服器。'; });
+
+
+  /** 同一個範圍、同樣時間長度的最佳成績。長度不同不能比——3 分鐘當然比 1 分鐘答得多。 */
+  function bestFor(sec) {
+    var mine = C.formatRows(rows), best = null;
+    ((cfg && cfg.sprints) || []).forEach(function (sp) {
+      if (String(sp.rows) !== mine) return;
+      if (Number(sp.limitSec) !== Number(sec)) return;
+      if (best === null || sp.correct > best) best = sp.correct;
+    });
+    return best;
+  }
+
+  function minLabel(sec) {
+    return (sec % 60 === 0) ? (sec / 60 + ' 分') : (sec + ' 秒');
+  }
+
+  function buildTimeButtons() {
+    var box = $('timeBtns');
+    box.innerHTML = '';
+    var choices = TIME_CHOICES.slice();
+    if (choices.indexOf(limitSec) < 0) choices.push(limitSec);   // 老師設了非標準秒數也要能選
+    choices.sort(function (a, b) { return a - b; });
+    choices.forEach(function (sec) {
+      var b = document.createElement('button');
+      b.className = 'time-btn' + (sec === limitSec ? ' on' : '');
+      b.textContent = minLabel(sec);
+      b.onclick = function () {
+        limitSec = sec;
+        Array.prototype.forEach.call(box.children, function (x) { x.classList.remove('on'); });
+        b.classList.add('on');
+        refreshIntro();
+      };
+      box.appendChild(b);
+    });
+    $('timePick').hidden = false;
+  }
+
+  function refreshIntro() {
+    prevBest = bestFor(limitSec);
+    $('introText').innerHTML =
+      '<strong>' + minLabel(limitSec) + '鐘</strong>內答對越多越好，答對一題 ' + POINT + ' 分。<br>' +
+      '答錯不扣分，但會停 1.5 秒，所以<strong>不要亂按</strong>。<br>' +
+      (prevBest === null
+        ? ('這是你第一次練這個範圍的 ' + minLabel(limitSec) + '鐘。')
+        : ('同樣 ' + minLabel(limitSec) + '鐘，上次最好答對 <strong>' + prevBest +
+           '</strong> 題，這次超過就有星星。'));
+  }
 
   /* ---- 鍵盤 ---- */
   function updateSubmitBtn() {
@@ -204,7 +257,7 @@
       queue: C.pickSprint(myCells, rows, QUEUE, Math.random),
       idx: 0, results: [], correct: 0,
       startedAt: new Date().toISOString(),
-      endAt: Date.now() + cfg.sprintSec * 1000
+      endAt: Date.now() + limitSec * 1000
     };
     show('playStage');
     tick();
@@ -268,7 +321,7 @@
     if (timerId) { clearInterval(timerId); timerId = null; }
     show('doneStage');
 
-    var cpm = C.cpmOf(state.correct, cfg.sprintSec);
+    var cpm = C.cpmOf(state.correct, limitSec);
     $('finalScore').textContent = (state.correct * POINT) + ' 分';
     $('finalDetail').textContent = '答對 ' + state.correct + ' 題，每分鐘 ' + cpm + ' 題';
 
@@ -351,7 +404,7 @@
       status: 'complete',
       answeredAt: state.startedAt,
       config: { sv: 1, thresholdMs: C.DEFAULT_THRESHOLD_MS,
-                limitSec: cfg.sprintSec, baselineMs: null,
+                limitSec: limitSec, baselineMs: null,
                 rows: C.formatRows(rows) },
       detail: C.encodeDetail(state.results)
     };

@@ -91,8 +91,11 @@ def route_gas(route, request):
         cells[C23] = cell("fluent", 900)
         body = {"ok": True, "name": "小明", "thresholdMs": 3000,
                 "sprintSec": 10, "cpmGoal": 30,
-                "sprints": [{"answeredAt": "2026-09-01T01:00:00Z", "total": 12,
-                             "correct": 8, "cpm": 24, "rows": "7"}],
+                "sprints": [
+                    {"answeredAt": "2026-09-01T01:00:00Z", "total": 12,
+                     "correct": 8, "cpm": 24, "rows": "7", "limitSec": 10},
+                    {"answeredAt": "2026-09-01T02:00:00Z", "total": 40,
+                     "correct": 33, "cpm": 11, "rows": "7", "limitSec": 180}],
                 "base": cells, "all": cells,
                 "diagnostics": [
                     {"answeredAt": "2026-09-01T01:00:00Z", "total": 81,
@@ -397,7 +400,23 @@ def test_sprint(pg):
     intro = pg.inner_text('#introText')
     ck('10 秒' in intro, '說明頁顯示班級設定的秒數')
     ck('不要亂按' in intro, '說明頁提醒答錯會停一下')
-    ck('上次最好答對 8 題' in intro, '顯示同範圍的上次最佳成績')
+    ck('上次最好答對 8 題' in intro, '顯示同範圍同長度的上次最佳成績')
+
+    # 時間可選，且「上次最佳」只跟同樣長度比
+    ck(pg.is_visible('#timePick'), '有時間選擇')
+    labels = pg.eval_on_selector_all('.time-btn', 'e=>e.map(x=>x.textContent)')
+    ck('3 分' in labels, '有 3 分鐘可選：' + '、'.join(labels))
+    ck(pg.eval_on_selector('.time-btn.on', 'e=>e.textContent') == '10 秒',
+       '預設選中班級設定的長度')
+    pg.click('.time-btn:text-is("3 分")')
+    pg.wait_for_timeout(200)
+    intro3 = pg.inner_text('#introText')
+    ck('3 分鐘' in intro3, '換成 3 分鐘後說明跟著改')
+    ck('上次最好答對 33 題' in intro3,
+       '3 分鐘的紀錄跟 3 分鐘比，不會拿 10 秒的來比')
+    pg.click('.time-btn:text-is("10 秒")')
+    pg.wait_for_timeout(200)
+    ck('上次最好答對 8 題' in pg.inner_text('#introText'), '切回去也正確')
 
     pg.click('#go')
     pg.wait_for_selector('#playStage:not([hidden])', timeout=5000)
@@ -444,7 +463,7 @@ def test_sprint(pg):
     if posted:
         pl = posted[0]
         ck(pl['mode'] == 'sprint', '模式標為 sprint')
-        ck(pl['config']['limitSec'] == 10, '設定記錄秒數')
+        ck(pl['config']['limitSec'] == 10, '設定記錄實際使用的秒數')
         ck(pl['config']['rows'] == '7', '設定記錄範圍')
         errs = contract_errors(pl)
         ck(not errs, '精熟練習的資料也符合契約：' + ('; '.join(errs[:2]) if errs else 'OK'))
@@ -463,7 +482,8 @@ def test_me(pg):
     ck(pg.eval_on_selector_all('.badge', 'e=>e.length') == 9, '徽章有九枚')
     ck('已收集' in pg.inner_text('#badgeCount'), '顯示收集進度')
     ck(pg.is_visible('#bestCard'), '有練習紀錄時顯示最佳紀錄')
-    ck('80 分' in pg.inner_text('#best'), '最高分由答對題數換算（8 題×10）')
+    ck('330 分' in pg.inner_text('#best'), '最高分取所有場次的最佳（33 題×10）')
+    ck('3 分鐘' in pg.inner_text('#best'), '標明最高分是幾分鐘拿的，避免不同長度混淆')
     ck(pg.is_visible('#cmpCard'), '有兩次診斷時顯示進步比較')
     ck('+11' in pg.eval_on_selector('#cmp', 'e=>e.textContent'), '進步題數算對（71-60）')
     ck(pg.is_visible('#weakCard'), '顯示還要多練的清單')
