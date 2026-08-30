@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>九九乘法診斷</title>
-<link rel="stylesheet" href="style.css?v=202608291959">
+<link rel="stylesheet" href="style.css?v=202608301246">
 <style>
   .row-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; max-width: 460px; }
   .row-btn {
@@ -73,11 +73,17 @@
       </div>
     </div>
   </div>
+
+  <div style="text-align:center;margin-top:24px">
+    <button id="toTeacher" class="ghost small" style="color:var(--muted);border-color:var(--line)">
+      老師管理
+    </button>
+  </div>
 </div>
 
-<script src="fact-core.js?v=202608291959"></script>
-<script src="fact-net.js?v=202608291959"></script>
-<script src="config.js?v=202608291959"></script>
+<script src="fact-core.js?v=202608301246"></script>
+<script src="fact-net.js?v=202608301246"></script>
+<script src="config.js?v=202608301246"></script>
 <script>
 (function () {
   'use strict';
@@ -208,6 +214,12 @@
   $('modeDiag').onclick = function () { goTo('diagnose.html', true); };
   $('modeSprint').onclick = function () { goTo('sprint.html', true); };
   $('mine').onclick = function () { goTo('me.html', false); };
+
+  // 老師入口：學生不會誤按（要 PIN 才進得去），老師也不用記第二個網址
+  $('toTeacher').onclick = function () {
+    var code = sessionStorage.getItem('ttd_class') || qs('cls') || $('code').value.trim().toUpperCase();
+    location.href = 'teacher.html' + (code ? ('?cls=' + encodeURIComponent(code)) : '');
+  };
 
   // 網址帶了班級代碼就直接進第二步
   var pre = qs('cls');

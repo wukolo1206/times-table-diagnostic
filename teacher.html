@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608291959">
+<link rel="stylesheet" href="style.css?v=202608301246">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -32,6 +32,16 @@
   .bar select { width: auto; font-size: 16px; padding: 8px; }
   .namelist { font-size: 16px; line-height: 1.9; }
   .warn { background: #fff6f4; border-color: var(--weak); }
+  table.sess { border-collapse: collapse; width: 100%; font-size: 15px; }
+  table.sess th, table.sess td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  table.sess th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  table.sess tr.pick { cursor: pointer; }
+  table.sess tr.pick:hover { background: #f7f5f0; }
+  table.qs { border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  table.qs td { padding: 5px 8px; border: 1px solid var(--line); text-align: center; }
+  table.qs td.ok { background: #eef6ee; }
+  table.qs td.no { background: #fceceb; }
+  table.qs td.to { background: #f2f0ec; color: var(--muted); }
   ul.weaklist { padding-left: 20px; line-height: 1.9; font-size: 16px; margin: 10px 0 0; }
   #printArea { display: none; }
   @media print {
@@ -111,8 +121,15 @@
           <select id="oneSeat"></select>
           <div id="onePanel" hidden style="margin-top:14px">
             <div id="oneSummary" style="font-size:16px;line-height:1.9"></div>
+            <div id="oneNotice" hidden style="margin-top:10px;padding:12px;border-radius:10px;
+                 background:#fff8ec;border:1px solid var(--shaky);font-size:15px;line-height:1.8"></div>
             <div id="oneRows" style="margin-top:10px;font-size:17px"></div>
             <ul class="weaklist" id="oneList"></ul>
+            <div style="margin-top:14px">
+              <button id="loadSessions" class="ghost small">看每一次測驗的明細</button>
+            </div>
+            <div id="sessionBox" hidden style="margin-top:12px"></div>
+
             <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
               <button id="copyOne" class="ghost small">複製給家長的訊息</button>
               <button id="printOne" class="ghost small">列印這一位</button>
@@ -152,8 +169,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608291959"></script>
-<script src="config.js?v=202608291959"></script>
+<script src="fact-core.js?v=202608301246"></script>
+<script src="config.js?v=202608301246"></script>
 <script>
 (function () {
   'use strict';
@@ -362,11 +379,31 @@
 
     var cells = cellsOf(stu);
     var cnt = countLevels(cells);
+    var c = stu.counts || { diag: 0, sprint: 0, practice: 0 };
+    var practiceN = (c.sprint || 0) + (c.practice || 0);
+    var g = group();
+
     $('oneSummary').innerHTML =
       '<strong>' + (stu.name || (stu.seat + ' 號')) + '</strong>　' +
       '很熟 ' + cnt.fluent + '　不熟 ' + cnt.shaky + '　不會 ' + cnt.weak +
       '　沒測過 ' + cnt.none +
-      (stu.lastAt ? '<br><span class="sub">最近測驗：' + String(stu.lastAt).slice(0, 10) + '</span>' : '');
+      '<br><span class="sub">課堂診斷 ' + (c.diag || 0) + ' 次　練習 ' + practiceN + ' 次' +
+      (stu.lastAt ? '　最近一次：' + String(stu.lastAt).slice(0, 10) : '') + '</span>';
+
+    // 只做過練習卻沒做診斷時，預設視角會是全空白——不解釋的話看起來像資料掉了
+    var onlyPractice = (g === 'base' && (c.diag || 0) === 0 && practiceN > 0);
+    $('oneNotice').hidden = !onlyPractice;
+    if (onlyPractice) {
+      $('oneNotice').innerHTML =
+        '<strong>這位還沒做過課堂診斷</strong>，只做過 ' + practiceN + ' 次練習。<br>' +
+        '目前的資料範圍是「只看課堂診斷」，所以格子都是空的。' +
+        '<button id="switchAll" class="ghost small" style="margin-top:8px">改看含練習的資料</button>';
+      $('switchAll').onclick = function () {
+        $('grp').value = 'all';
+        render();
+        renderOne();
+      };
+    }
 
     var rows = C.rowsToPractice(cells);
     $('oneRows').innerHTML = rows.length
@@ -392,6 +429,8 @@
 
     $('onePreview').textContent = parentMessage(stu);
     $('oneMsg').textContent = '';
+    $('sessionBox').hidden = true;
+    $('sessionBox').innerHTML = '';
   }
 
   $('copyOne').onclick = function () {
@@ -428,6 +467,92 @@
   };
 
   $('oneSeat').onchange = renderOne;
+
+
+  /* ---- 每一次測驗的明細 ---- */
+
+  var MODE_TEXT = { diagnostic: '課堂診斷', sprint: '精熟練習', practice: '練習' };
+
+  function fmtSec(ms) {
+    if (!ms) return '—';
+    return (ms / 1000).toFixed(1) + ' 秒';
+  }
+
+  function api(action, params) {
+    var u = window.TTD_GAS_URL + '?action=' + action +
+            '&cls=' + encodeURIComponent(classCode) + '&pin=' + encodeURIComponent(pin);
+    Object.keys(params || {}).forEach(function (k) {
+      u += '&' + k + '=' + encodeURIComponent(params[k]);
+    });
+    return fetch(u, { redirect: 'follow' }).then(function (r) { return r.json(); });
+  }
+
+  function renderSessions(list) {
+    if (!list.length) {
+      $('sessionBox').innerHTML = '<span class="sub">這位還沒有任何測驗紀錄。</span>';
+      return;
+    }
+    var h = '<table class="sess"><tr><th>時間</th><th>種類</th><th>範圍</th>' +
+            '<th>分數</th><th>對／題</th><th>思考總秒數</th></tr>';
+    list.forEach(function (s) {
+      h += '<tr class="pick" data-id="' + s.id + '">' +
+           '<td>' + String(s.answeredAt).slice(0, 16).replace('T', ' ') + '</td>' +
+           '<td>' + (MODE_TEXT[s.mode] || s.mode) +
+             (s.status === 'partial' ? '<br><span class="sub">未做完</span>' : '') + '</td>' +
+           '<td>' + (s.rows ? s.rows.split('').join('、') : '全部') + '</td>' +
+           '<td><strong>' + (s.correct * 10) + '</strong></td>' +
+           '<td>' + s.correct + ' / ' + s.total + '</td>' +
+           '<td>' + fmtSec(s.thinkMs) + '</td></tr>';
+    });
+    h += '</table><p class="sub" style="margin:8px 0 0">' +
+         '點任一列看每題的秒數。「思考總秒數」是每題從看到題目到開始寫的時間加總，' +
+         '不含輸入與回饋，所以會比實際作答時間短。</p>' +
+         '<div id="qsBox"></div>';
+    $('sessionBox').innerHTML = h;
+    $('sessionBox').hidden = false;
+
+    Array.prototype.forEach.call($('sessionBox').querySelectorAll('tr.pick'), function (tr) {
+      tr.onclick = function () { loadOneSession(tr.getAttribute('data-id')); };
+    });
+  }
+
+  function loadOneSession(id) {
+    $('qsBox').innerHTML = '<span class="sub">載入中…</span>';
+    api('session', { id: id }).then(function (r) {
+      if (!r.ok) { $('qsBox').innerHTML = '<span class="msg err">讀不到（' + r.code + '）</span>'; return; }
+      var h = '<h2 style="font-size:17px;margin:14px 0 4px">' +
+              String(r.answeredAt).slice(0, 16).replace('T', ' ') + '　' +
+              (MODE_TEXT[r.mode] || r.mode) + '</h2>' +
+              '<div class="sub">答對 ' + r.correct + ' / ' + r.total +
+              '　得分 ' + (r.correct * 10) +
+              (r.cpm ? '　每分鐘 ' + r.cpm + ' 題' : '') +
+              (r.med ? '　中位思考 ' + fmtSec(r.med) : '') + '</div>' +
+              '<table class="qs"><tr><td>題目</td><td>他寫的</td><td>正解</td><td>秒數</td></tr>';
+      (r.detail || []).forEach(function (d) {
+        var a = d[0], b = d[1], ans = d[2], ok = d[3], ms = d[4];
+        var cls = ok === 1 ? 'ok' : (ok === 0 ? 'no' : 'to');
+        h += '<tr>' +
+             '<td>' + a + ' × ' + b + '</td>' +
+             '<td class="' + cls + '">' + (ans === null ? '沒作答' : ans) + '</td>' +
+             '<td>' + (a * b) + '</td>' +
+             '<td>' + fmtSec(ms) + '</td></tr>';
+      });
+      h += '</table>';
+      $('qsBox').innerHTML = h;
+    });
+  }
+
+  $('loadSessions').onclick = function () {
+    var stu = studentOf($('oneSeat').value);
+    if (!stu) return;
+    $('sessionBox').hidden = false;
+    $('sessionBox').innerHTML = '<span class="sub">載入中…</span>';
+    api('sessions', { seat: stu.seat }).then(function (r) {
+      if (!r.ok) { $('sessionBox').innerHTML = '<span class="msg err">讀不到（' + r.code + '）</span>'; return; }
+      renderSessions(r.sessions || []);
+    });
+  };
+
 
   function showDetail(a, b) {
     var g = group();

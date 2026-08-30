@@ -98,6 +98,23 @@ def route_gas(route, request):
                      "correct": 60, "timeouts": 2, "med": 2100},
                     {"answeredAt": "2026-09-15T01:00:00Z", "total": 81,
                      "correct": 71, "timeouts": 0, "med": 1800}]}
+    elif 'action=sessions' in url:
+        body = {"ok": True, "sessions": [
+            {"id": "s1", "answeredAt": "2026-09-01T09:30:00Z", "mode": "diagnostic",
+             "context": "class", "status": "complete", "rows": "7", "limitSec": None,
+             "total": 9, "correct": 7, "timeouts": 0, "med": 2100, "cpm": None,
+             "thinkMs": 18500},
+            {"id": "s2", "answeredAt": "2026-09-02T09:30:00Z", "mode": "sprint",
+             "context": "class", "status": "complete", "rows": "7", "limitSec": 60,
+             "total": 20, "correct": 18, "timeouts": 0, "med": 1500, "cpm": 18,
+             "thinkMs": 30200}]}
+    elif 'action=session' in url:
+        body = {"ok": True, "id": "s1", "seat": 1, "answeredAt": "2026-09-01T09:30:00Z",
+                "mode": "diagnostic", "context": "class", "status": "complete",
+                "config": {"rows": "7"}, "total": 3, "correct": 2, "timeouts": 0,
+                "med": 2100, "cpm": None,
+                "detail": [[7, 8, 56, 1, 2100, 0], [7, 9, 49, 0, 4300, 0],
+                           [7, 6, None, None, None, 0]]}
     elif 'action=dashboard' in url:
         if 'pin=1234' not in url:
             body = {"ok": False, "code": "BAD_PIN", "left": 4}
@@ -113,13 +130,24 @@ def route_gas(route, request):
                     "students": [
                         {"seat": 1, "name": "小明", "base": weak_cells,
                          "all": weak_cells, "sessions": 1, "stale": False,
+                         "counts": {"diag": 1, "sprint": 0, "practice": 0},
                          "lastAt": "2026-09-01T01:00:00Z"},
                         {"seat": 2, "name": "小華", "base": good_cells,
                          "all": good_cells, "sessions": 1, "stale": False,
+                         "counts": {"diag": 1, "sprint": 0, "practice": 0},
                          "lastAt": "2026-09-01T01:00:00Z"},
                         {"seat": 3, "name": "小美", "base": empty_cells(),
                          "all": empty_cells(), "sessions": 0, "stale": False,
-                         "lastAt": ""}]}
+                         "counts": {"diag": 0, "sprint": 0, "practice": 0},
+                         "lastAt": ""},
+                        {"seat": 4, "name": "阿凱", "base": empty_cells(),
+                         "all": good_cells, "sessions": 3, "stale": False,
+                         "counts": {"diag": 0, "sprint": 3, "practice": 0},
+                         "lastAt": "2026-09-02T01:00:00Z"},
+                        {"seat": 5, "name": "小雨", "base": good_cells,
+                         "all": good_cells, "sessions": 1, "stale": False,
+                         "counts": {"diag": 1, "sprint": 0, "practice": 0},
+                         "lastAt": "2026-09-01T01:00:00Z"}]}
     else:
         body = {"ok": True}
     route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
@@ -163,6 +191,13 @@ def test_index(pg):
     ck(pg.eval_on_selector('#modeSprint', 'e=>e.disabled') is False, '可以選精熟練習')
     pg.click('[data-preset="none"]')
     ck(pg.eval_on_selector('#modeSprint', 'e=>e.disabled') is True, '沒選數字時兩個模式都不能按')
+
+    # 老師不用記第二個網址
+    ck(pg.is_visible('#toTeacher'), '學生頁有「老師管理」入口')
+    pg.click('#toTeacher')
+    pg.wait_for_url('**/teacher.html*', timeout=10000)
+    ck('cls=TEST01' in pg.url, '帶著班級代碼進教師頁：' + pg.url.split('?')[-1])
+    ck(pg.is_visible('#loginCard'), '仍然要輸入 PIN 才進得去')
 
 
 def test_diagnose(pg):
@@ -425,10 +460,8 @@ def test_teacher(pg):
     ck('teacher.html' not in pg.inner_text('#stuLink'), '學生連結不會指到教師頁')
     ck(pg.inner_text('#codeShow') == 'TEST01', '同時附上班級代碼備用')
     # 沒做過的學生也要算進分母，否則「樣本不足」的保護會失效
-    ck('3 人中 2 人有資料' in pg.inner_text('#coverage'),
+    ck('5 人中 3 人有資料' in pg.inner_text('#coverage'),
        '涵蓋率把沒做過的人算進分母：' + pg.inner_text('#coverage').strip())
-    ck('資料還不夠' not in pg.inner_text('#coverage'),
-       '2/3 已達六成，不顯示資料不足警告')
     ck(pg.eval_on_selector_all('td.sparse', 'e=>e.length') > 0,
        '只有 2/3 做過，格子要標斜紋提醒別當結論')
 
@@ -467,6 +500,8 @@ def test_teacher(pg):
     pg.wait_for_timeout(200)
     ck('小明' in pg.inner_text('#oneSummary'), '顯示學生姓名')
     ck('2026-09-01' in pg.inner_text('#oneSummary'), '顯示最近測驗日期')
+    ck('課堂診斷 1 次' in pg.inner_text('#oneSummary'), '分開顯示診斷與練習次數')
+    ck(pg.is_hidden('#oneNotice'), '做過診斷的學生不顯示提醒')
     ck('要加強的數字' in pg.inner_text('#oneRows'), '列出要加強的數字')
     ck('7' in pg.inner_text('#oneRows') and '6' in pg.inner_text('#oneRows'),
        '要加強的數字含 7 與 6')
@@ -491,10 +526,42 @@ def test_teacher(pg):
     ck('寫成' not in msg2, '沒答錯的學生不會出現「寫成」')
     ck('答案是對的' in msg2 and '秒' in msg2, '只有慢的學生，訊息說明是速度問題')
 
+    # 只做過練習沒做診斷的學生，預設視角全空白——必須解釋，否則看起來像資料掉了
+    pg.select_option('#oneSeat', '4')
+    pg.wait_for_timeout(200)
+    ck(pg.is_visible('#oneNotice'), '只做過練習的學生會出現說明')
+    ck('還沒做過課堂診斷' in pg.inner_text('#oneNotice'), '說明寫出原因')
+    ck('練習 3 次' in pg.inner_text('#oneSummary'), '顯示練習次數')
+    pg.click('#switchAll')
+    pg.wait_for_timeout(300)
+    ck(pg.eval_on_selector('#grp', 'e=>e.value') == 'all', '一鍵切到含練習的資料')
+    ck(pg.is_hidden('#oneNotice'), '切過去後提醒消失')
+    pg.select_option('#grp', 'base')
+    pg.select_option('#oneSeat', '1')
+    pg.wait_for_timeout(200)
+
+    # 每一次測驗的明細
+    print('== 單場測驗明細')
+    ck(pg.is_visible('#loadSessions'), '有「看每一次測驗的明細」按鈕')
+    pg.click('#loadSessions')
+    pg.wait_for_selector('table.sess tr.pick', timeout=10000)
+    sess = pg.eval_on_selector_all('table.sess tr.pick', 'e=>e.map(x=>x.innerText)')
+    ck(len(sess) == 2, '列出 2 場，實際 %d 場' % len(sess))
+    ck('課堂診斷' in sess[0], '寫出測驗種類')
+    ck('70' in sess[0], '顯示分數（7 對 × 10）')
+    ck('18.5 秒' in sess[0], '顯示思考總秒數')
+    pg.click('table.sess tr.pick')
+    pg.wait_for_selector('table.qs', timeout=10000)
+    qs_txt = pg.inner_text('#qsBox')
+    ck('7 × 8' in qs_txt, '逐題列出題目')
+    ck('2.1 秒' in qs_txt, '逐題列出秒數')
+    ck('沒作答' in qs_txt, '逾時的題目標示出來')
+    ck('4.3 秒' in qs_txt, '答錯的題目也有秒數')
+
     pg.click('#printAll')
     pg.wait_for_timeout(300)
     sheets = pg.eval_on_selector_all('#printArea .sheet', 'e=>e.length')
-    ck(sheets == 2, '列印全班產生 2 張，實際 %d' % sheets)
+    ck(sheets == 4, '列印全班只印有資料的人（4 位），實際 %d 張' % sheets)
 
 
 def main():

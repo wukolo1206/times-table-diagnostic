@@ -363,6 +363,12 @@ function doGet(e) {
     if (action === 'config') return jsonOut_(apiConfig(code));
     if (action === 'myrecord') return jsonOut_(apiMyRecord(code, Number(e.parameter.seat)));
     if (action === 'dashboard') return jsonOut_(apiDashboard(code, e.parameter.pin));
+    if (action === 'session') {
+      return jsonOut_(apiSession(code, e.parameter.pin, e.parameter.id));
+    }
+    if (action === 'sessions') {
+      return jsonOut_(apiSessions(code, e.parameter.pin, Number(e.parameter.seat)));
+    }
     if (action === 'deleteclass') {
       return jsonOut_(apiDeleteClass(code, e.parameter.pin, e.parameter.confirm));
     }
@@ -491,6 +497,7 @@ function apiDashboard(code, pin) {
     bySeat[Number(snapRows[i][1])] = snapRows[i];
   }
 
+  var counts = sessionCounts_(code);
   var roster = sheet_(T_STUDENT, studentHeaders()).getDataRange().getValues();
   var students = [];
   for (var k = 1; k < roster.length; k++) {
@@ -504,6 +511,7 @@ function apiDashboard(code, pin) {
         base: JSON.parse(r[3]),
         all: JSON.parse(r[4]),
         sessions: r[5],
+        counts: counts[seat] || { diag: 0, sprint: 0, practice: 0 },
         lastAt: String(r[6] || ''),   // 家長通知要寫測驗日期
         stale: r[8] === true
       });
@@ -514,6 +522,7 @@ function apiDashboard(code, pin) {
         base: FactCore.emptyCells(),
         all: FactCore.emptyCells(),
         sessions: 0,
+        counts: { diag: 0, sprint: 0, practice: 0 },
         lastAt: '',
         stale: false
       });
@@ -529,6 +538,90 @@ function apiDashboard(code, pin) {
     students: students,
     anomalies: findAnomalies_(code)
   };
+}
+
+/**
+ * 某位學生的所有場次摘要（教師用，需 PIN）。
+ * 每場算出總秒數：作答時間的總和，讓老師看得出這場花了多久。
+ */
+function apiSessions(code, pin, seat) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+
+  var rows = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
+  var out = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][4]) !== String(code)) continue;
+    if (Number(rows[i][5]) !== Number(seat)) continue;
+    var cfg = {};
+    try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
+    var detail = [];
+    try { detail = JSON.parse(rows[i][16]) || []; } catch (e) { detail = []; }
+    var totalMs = 0;
+    detail.forEach(function (d) { if (d[4]) totalMs += d[4]; });
+    out.push({
+      id: rows[i][3],
+      answeredAt: String(rows[i][1]),
+      mode: rows[i][7],
+      context: rows[i][8],
+      status: rows[i][9],
+      rows: cfg.rows || '',
+      limitSec: cfg.limitSec || null,
+      total: rows[i][11],
+      correct: rows[i][12],
+      timeouts: rows[i][13],
+      med: rows[i][14] === '' ? null : Number(rows[i][14]),
+      cpm: rows[i][15] === '' ? null : Number(rows[i][15]),
+      thinkMs: totalMs                  // 純思考時間總和（不含輸入與回饋）
+    });
+  }
+  out.sort(function (x, y) { return x.answeredAt < y.answeredAt ? 1 : -1; });  // 新的在前
+  return { ok: true, sessions: out };
+}
+
+/** 單一場次的逐題明細（教師用，需 PIN）。 */
+function apiSession(code, pin, id) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+
+  var rows = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][4]) !== String(code)) continue;
+    if (String(rows[i][3]) !== String(id)) continue;
+    var cfg = {};
+    try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
+    return {
+      ok: true,
+      id: id,
+      seat: Number(rows[i][5]),
+      answeredAt: String(rows[i][1]),
+      mode: rows[i][7],
+      context: rows[i][8],
+      status: rows[i][9],
+      config: cfg,
+      total: rows[i][11],
+      correct: rows[i][12],
+      timeouts: rows[i][13],
+      med: rows[i][14] === '' ? null : Number(rows[i][14]),
+      cpm: rows[i][15] === '' ? null : Number(rows[i][15]),
+      detail: JSON.parse(rows[i][16] || '[]')
+    };
+  }
+  return { ok: false, code: 'SESSION_NOT_FOUND' };
+}
+
+/** 每位學生各模式做過幾次。教師要能分辨「還沒做診斷」與「什麼都沒做」。 */
+function sessionCounts_(code) {
+  var rows = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
+  var out = {};
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][4]) !== String(code)) continue;
+    var seat = Number(rows[i][5]);
+    if (!out[seat]) out[seat] = { diag: 0, sprint: 0, practice: 0 };
+    var m = rows[i][7];
+    if (out[seat][m] !== undefined) out[seat][m]++;
+  }
+  return out;
 }
 
 /** 異常標記供老師判斷（6.6）。不做任何自動處置。 */
