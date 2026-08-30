@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608302051">
+<link rel="stylesheet" href="style.css?v=202608302100">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -192,8 +192,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608302051"></script>
-<script src="config.js?v=202608302051"></script>
+<script src="fact-core.js?v=202608302100"></script>
+<script src="config.js?v=202608302100"></script>
 <script>
 (function () {
   'use strict';
@@ -623,6 +623,8 @@
 
   var SLOW_MS = 3000;      // 超過這個秒數視為「答對但慢」，與熱圖門檻一致
   var repData = null, repSort = { key: 'seat', asc: true };
+  // B 表預設「錯最多的排前面」——那是老師最先想看的
+  var repSortB = { key: 'no', asc: false };
 
   function loadGroups() {
     api('classgroups', {}).then(function (r) {
@@ -657,6 +659,7 @@
       }
       repData = r;
       repSort = { key: 'seat', asc: true };
+      repSortB = { key: 'no', asc: false };
       renderReport();
     });
   }
@@ -678,7 +681,7 @@
     /* A ---- 誰做了、考得怎樣 */
     h += '<div class="repsec"><h3>A　這一次誰做了、考得怎樣</h3>';
     h += '<p class="why">點欄位標題可排序。「中位思考」是這位學生本場每題思考時間的中位數。</p>';
-    h += '<table class="rep"><tr>' +
+    h += '<table class="rep" id="tblA"><tr>' +
          '<th style="width:34px"><input type="checkbox" id="pickAll" title="全選"></th>' +
          th('seat', '座號') + th('correct', '答對') + th('total', '題數') +
          '<th>分數</th>' + th('med', '中位思考') + th('thinkMs', '思考總秒數') +
@@ -709,14 +712,13 @@
     h += '</div>';
 
     /* B ---- 每一題全班統計 */
-    var cells = r.cells.slice().sort(function (x, y) {
-      return (y.no - x.no) || ((y.avgMs || 0) - (x.avgMs || 0));
-    });
+    var cells = sortCells(r.cells);
     h += '<div class="repsec"><h3>B　每一題全班的表現</h3>';
-    h += '<p class="why">依錯的人數排序。<strong>注意「錯很少但很慢」的題目</strong>——' +
+    h += '<p class="why">點欄位標題可排序。<strong>注意「錯很少但很慢」的題目</strong>——' +
          '熱圖會顯示綠色，但代表全班多半是算出來的，不是背出來的。</p>';
-    h += '<table class="rep"><tr><th>題目</th><th>對</th><th>錯</th><th>沒作答</th>' +
-         '<th>全班中位思考</th></tr>';
+    h += '<table class="rep" id="tblB"><tr>' +
+         thB('cell', '題目') + thB('ok', '對') + thB('no', '錯') +
+         thB('to', '沒作答') + thB('avgMs', '全班中位思考') + '</tr>';
     cells.forEach(function (c) {
       var slow = c.avgMs !== null && c.avgMs >= SLOW_MS;
       h += '<tr>' +
@@ -737,7 +739,7 @@
       h += '<p class="sub">這一場沒有人答錯。</p>';
     } else {
       h += '<p class="why">同一個錯誤好幾個人犯，通常不是個別問題，' +
-           '而是講解的方式需要調整。</p><table class="rep">' +
+           '而是講解的方式需要調整。</p><table class="rep" id="tblC">' +
            '<tr><th>題目</th><th>寫成</th><th>人數</th><th>可能的原因</th></tr>';
       r.errors.forEach(function (e) {
         h += '<tr>' +
@@ -764,6 +766,16 @@
         var k = el.getAttribute('data-k');
         if (repSort.key === k) repSort.asc = !repSort.asc;
         else repSort = { key: k, asc: true };
+        renderReport();
+      };
+    });
+
+    Array.prototype.forEach.call($('reportBox').querySelectorAll('th[data-kb]'), function (el) {
+      el.onclick = function () {
+        var k = el.getAttribute('data-kb');
+        // 數量與秒數第一次點都給「大的在前」，那才是老師想找的
+        if (repSortB.key === k) repSortB.asc = !repSortB.asc;
+        else repSortB = { key: k, asc: (k === 'cell') };
         renderReport();
       };
     });
@@ -826,6 +838,27 @@
     };
 
     refresh();
+  }
+
+
+  /** B 表的排序。題目照 a、b 的順序，其餘照數值；同分時錯多的優先。 */
+  function sortCells(list) {
+    var k = repSortB.key, asc = repSortB.asc ? 1 : -1;
+    return list.slice().sort(function (x, y) {
+      var a, b;
+      if (k === 'cell') { a = x.a * 9 + x.b; b = y.a * 9 + y.b; }
+      else { a = x[k]; b = y[k]; }
+      if (a === null || a === undefined) return 1;
+      if (b === null || b === undefined) return -1;
+      if (a === b) return (y.no - x.no) || ((y.avgMs || 0) - (x.avgMs || 0));
+      return (a > b ? 1 : -1) * asc;
+    });
+  }
+
+  function thB(key, label) {
+    var on = repSortB.key === key;
+    return '<th data-kb="' + key + '" class="' + (on ? 'on' : '') + '">' + label +
+           (on ? (repSortB.asc ? ' ▲' : ' ▼') : '') + '</th>';
   }
 
   function th(key, label) {

@@ -592,17 +592,35 @@ def test_teacher(pg):
     ck('每一題全班的表現' in rep, 'B 區塊：每題統計')
     ck('5.2 秒' in rep and '偏慢' in rep, 'B 區塊標出答對但慢的題目')
 
+    # B 表排序
+    def b_first():
+        return pg.eval_on_selector(
+            '#tblB tr:nth-child(2) td', 'e=>e.textContent')
+    ck('7 × 8' in b_first(), 'B 表預設錯最多的排最前：' + b_first().strip())
+    pg.click('#reportBox th[data-kb="avgMs"]')
+    pg.wait_for_timeout(200)
+    ck('7 × 8' in b_first(), '依秒數排序，最慢的排最前：' + b_first().strip())
+    pg.click('#reportBox th[data-kb="avgMs"]')
+    pg.wait_for_timeout(200)
+    ck('7 × 2' in b_first(), '再點一次改成最快的排最前：' + b_first().strip())
+    pg.click('#reportBox th[data-kb="cell"]')
+    pg.wait_for_timeout(200)
+    ck('7 × 2' in b_first(), '依題目排序：' + b_first().strip())
+    pg.click('#reportBox th[data-kb="no"]')
+    pg.wait_for_timeout(200)
+    ck('7 × 8' in b_first(), '依錯的人數排序回到 7×8：' + b_first().strip())
+
     ck('全班常犯的錯' in rep, 'C 區塊：常見錯誤')
     ck('和別句口訣記混了' in rep, 'C 區塊寫出錯誤原因')
     ck('把乘法當成加法算' in rep, 'C 區塊分辨不同錯誤型態')
 
     # 排序
-    slow_first = pg.eval_on_selector_all('#reportBox table.rep th[data-k]', 'e=>e.map(x=>x.textContent)')
+    slow_first = pg.eval_on_selector_all('#tblA th[data-k]', 'e=>e.map(x=>x.textContent)')
     ck(len(slow_first) >= 4, 'A 區塊的欄位可點擊排序')
-    pg.click('#reportBox table.rep th[data-k="med"]')
+    pg.click('#tblA th[data-k="med"]')
     pg.wait_for_timeout(200)
     # 第一欄現在是勾選框，座號在第二欄
-    first = pg.eval_on_selector('#reportBox table.rep tr:nth-child(2) td:nth-child(2)',
+    first = pg.eval_on_selector('#tblA tr:nth-child(2) td:nth-child(2)',
                                 'e=>e.textContent')
     ck('2' in first, '依中位思考排序後最快的排最前（小華）：' + first)
 
