@@ -4,7 +4,7 @@ category: 康軒數學
 status: 已上線並實測，待實機平板＋校內網路驗證
 version: 0.8.2
 url: https://wukolo1206.github.io/times-table-diagnostic/
-next_action: 拿真平板到學校連校內網路測一次；碧小408 全班跑一次診斷，全班報表才有東西看
+next_action: 用勾選刪除清掉碧小408 的測試場次；拿真平板到學校連校內網路測一次；全班跑一次診斷
 updated: 2026-08-30
 ---
 
