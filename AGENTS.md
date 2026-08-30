@@ -4,7 +4,7 @@ category: 康軒數學
 status: 已上線並實測，待實機平板＋校內網路驗證
 version: 0.8.0
 url: https://wukolo1206.github.io/times-table-diagnostic/
-next_action: 拿真平板到學校連校內網路做一次完整作答（手機 5G 已通過，剩學校網路那關），再跑碧小408 全班診斷
+next_action: 拿真平板到學校連校內網路測一次；碧小408 全班跑一次診斷，全班報表才有東西看
 updated: 2026-08-30
 ---
 
@@ -19,6 +19,7 @@ updated: 2026-08-30
 - **Apps Script 專案：** `13tSg_CWU3i9ohKepVSEJjDPUrg5kYmmvW2Px7NlWrKxbqg8QuwnDotfN`
 - **後端網址：** 見 `config.js`（由 `tools/deploy_gas.py` 自動維護，勿手改）
 - **示範班：** 代碼 `DEMO01`、教師 PIN `1234`
+- **碧小408：** 代碼 `4088`、教師 PIN `1257`、32 個座號、純座號模式
 
 ## 架構
 
