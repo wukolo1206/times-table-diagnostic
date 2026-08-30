@@ -366,6 +366,13 @@ function doGet(e) {
     if (action === 'session') {
       return jsonOut_(apiSession(code, e.parameter.pin, e.parameter.id));
     }
+    if (action === 'classgroups') {
+      return jsonOut_(apiClassGroups(code, e.parameter.pin));
+    }
+    if (action === 'classreport') {
+      return jsonOut_(apiClassReport(code, e.parameter.pin, e.parameter.day,
+                                     e.parameter.mode, e.parameter.rows || ''));
+    }
     if (action === 'sessions') {
       return jsonOut_(apiSessions(code, e.parameter.pin, Number(e.parameter.seat)));
     }
@@ -644,6 +651,133 @@ function findAnomalies_(code) {
     }
   });
   return out;
+}
+
+
+/* ============================================================
+ * 全班層級的報表（同一天＋同模式＋同範圍算一「場」）
+ * ========================================================== */
+
+/** 把場次歸成「場」：同一天、同模式、同範圍。 */
+function apiClassGroups(code, pin) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+
+  var rows = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
+  var map = {};
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][4]) !== String(code)) continue;
+    var day = String(rows[i][1]).slice(0, 10);
+    var mode = rows[i][7];
+    var cfg = {};
+    try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
+    var rg = cfg.rows || '';
+    var key = day + '|' + mode + '|' + rg;
+    if (!map[key]) map[key] = { day: day, mode: mode, rows: rg, n: 0, seats: {} };
+    map[key].n++;
+    map[key].seats[Number(rows[i][5])] = 1;
+  }
+  var out = [];
+  Object.keys(map).forEach(function (k) {
+    var g = map[k];
+    out.push({ key: k, day: g.day, mode: g.mode, rows: g.rows,
+               people: Object.keys(g.seats).length });
+  });
+  out.sort(function (x, y) { return x.day < y.day ? 1 : (x.day > y.day ? -1 : 0); });
+  return { ok: true, groups: out };
+}
+
+/**
+ * 某一場的全班報表。三個區塊在伺服器算好再回傳——
+ * 32 人 × 81 題的明細直接傳到前端太重。
+ */
+function apiClassReport(code, pin, day, mode, rowsFilter) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+  var cls = chk.cls;
+
+  var all = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
+  var students = [];       // A：誰做了、考得怎樣
+  var cellStat = {};       // B：每一題全班統計
+  var errTally = {};       // C：常見錯誤答案
+  var doneSeats = {};
+
+  for (var i = 1; i < all.length; i++) {
+    if (String(all[i][4]) !== String(code)) continue;
+    if (String(all[i][1]).slice(0, 10) !== String(day)) continue;
+    if (all[i][7] !== mode) continue;
+    var cfg = {};
+    try { cfg = JSON.parse(all[i][10]) || {}; } catch (e) { cfg = {}; }
+    if (String(cfg.rows || '') !== String(rowsFilter)) continue;
+
+    var seat = Number(all[i][5]);
+    doneSeats[seat] = 1;
+    var detail = [];
+    try { detail = JSON.parse(all[i][16]) || []; } catch (e) { detail = []; }
+
+    var thinkMs = 0;
+    detail.forEach(function (d) {
+      var a = d[0], b = d[1], ans = d[2], ok = d[3], ms = d[4], flags = d[5];
+      if (ms) thinkMs += ms;
+
+      var k = a + 'x' + b;
+      if (!cellStat[k]) cellStat[k] = { a: a, b: b, ok: 0, no: 0, to: 0, msList: [] };
+      if (ok === 1) cellStat[k].ok++;
+      else if (ok === 0) cellStat[k].no++;
+      else cellStat[k].to++;
+      // 只採計有效的時間，否則誤觸會拉歪全班平均
+      if (ms !== null && FactCore.isValid(flags)) cellStat[k].msList.push(ms);
+
+      if (ok === 0 && ans !== null) {
+        var ek = a + 'x' + b + '=' + ans;
+        if (!errTally[ek]) {
+          errTally[ek] = { a: a, b: b, ans: ans, n: 0,
+                           type: FactCore.classifyError(a, b, ans) };
+        }
+        errTally[ek].n++;
+      }
+    });
+
+    students.push({
+      seat: seat,
+      name: cls.seatOnly ? '' : all[i][6],
+      total: all[i][11],
+      correct: all[i][12],
+      timeouts: all[i][13],
+      med: all[i][14] === '' ? null : Number(all[i][14]),
+      cpm: all[i][15] === '' ? null : Number(all[i][15]),
+      status: all[i][9],
+      thinkMs: thinkMs
+    });
+  }
+
+  // 沒做的人也要列出來——老師課堂上正是要點這個
+  var roster = sheet_(T_STUDENT, studentHeaders()).getDataRange().getValues();
+  var missing = [];
+  for (var k2 = 1; k2 < roster.length; k2++) {
+    if (String(roster[k2][0]) !== String(code)) continue;
+    var st = Number(roster[k2][1]);
+    if (!doneSeats[st]) {
+      missing.push({ seat: st, name: cls.seatOnly ? '' : roster[k2][2] });
+    }
+  }
+
+  var cells = [];
+  Object.keys(cellStat).forEach(function (k3) {
+    var c = cellStat[k3];
+    cells.push({ a: c.a, b: c.b, ok: c.ok, no: c.no, to: c.to,
+                 avgMs: c.msList.length ? Math.round(FactCore.median(c.msList)) : null,
+                 n: c.ok + c.no + c.to });
+  });
+
+  var errors = [];
+  Object.keys(errTally).forEach(function (k4) { errors.push(errTally[k4]); });
+  errors.sort(function (x, y) { return y.n - x.n; });
+
+  students.sort(function (x, y) { return x.seat - y.seat; });
+  return { ok: true, day: day, mode: mode, rows: rowsFilter,
+           students: students, missing: missing, cells: cells,
+           errors: errors.slice(0, 20) };
 }
 
 /* ============================================================

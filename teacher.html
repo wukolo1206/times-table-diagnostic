@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608301246">
+<link rel="stylesheet" href="style.css?v=202608301315">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -42,6 +42,16 @@
   table.qs td.ok { background: #eef6ee; }
   table.qs td.no { background: #fceceb; }
   table.qs td.to { background: #f2f0ec; color: var(--muted); }
+  table.rep { border-collapse: collapse; width: 100%; font-size: 15px; }
+  table.rep th, table.rep td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  table.rep th { color: var(--muted); font-weight: 600; font-size: 13px; cursor: pointer; }
+  table.rep th.on { color: var(--accent); }
+  table.rep td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .repsec { margin-top: 18px; }
+  .repsec h3 { font-size: 16px; margin: 0 0 4px; }
+  .repsec .why { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .slow { color: var(--weak); font-weight: 700; }
+  .misslist { font-size: 15px; line-height: 1.9; color: var(--weak); }
   ul.weaklist { padding-left: 20px; line-height: 1.9; font-size: 16px; margin: 10px 0 0; }
   #printArea { display: none; }
   @media print {
@@ -111,6 +121,13 @@
             格子顏色＝該題不會＋不熟的人數比例。斜紋＝做過的人不到六成，先別當結論。點任一格看是哪些人。
           </p>
         </div>
+        <div class="card">
+          <h2 style="margin:0 0 6px">全班某一次施測</h2>
+          <p class="sub" style="margin:0 0 10px">同一天、同模式、同範圍算一場。</p>
+          <select id="groupSel"><option>載入中…</option></select>
+          <div id="reportBox" hidden style="margin-top:14px"></div>
+        </div>
+
         <div class="card" id="detailCard" hidden>
           <h2 style="margin:0 0 10px" id="detailTitle"></h2>
           <div class="namelist" id="detailBody"></div>
@@ -169,8 +186,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608301246"></script>
-<script src="config.js?v=202608301246"></script>
+<script src="fact-core.js?v=202608301315"></script>
+<script src="config.js?v=202608301315"></script>
 <script>
 (function () {
   'use strict';
@@ -402,6 +419,7 @@
         $('grp').value = 'all';
         render();
         renderOne();
+        loadGroups();
       };
     }
 
@@ -552,6 +570,158 @@
       renderSessions(r.sessions || []);
     });
   };
+
+
+
+  /* ---- 全班某一次施測的報表（A 誰做了 / B 每題統計 / C 常見錯誤） ---- */
+
+  var SLOW_MS = 3000;      // 超過這個秒數視為「答對但慢」，與熱圖門檻一致
+  var repData = null, repSort = { key: 'seat', asc: true };
+
+  function loadGroups() {
+    api('classgroups', {}).then(function (r) {
+      var sel = $('groupSel');
+      sel.innerHTML = '';
+      if (!r.ok || !r.groups.length) {
+        sel.innerHTML = '<option value="">還沒有任何施測紀錄</option>';
+        return;
+      }
+      r.groups.forEach(function (g) {
+        var o = document.createElement('option');
+        o.value = JSON.stringify({ day: g.day, mode: g.mode, rows: g.rows });
+        o.textContent = g.day + '　' + (MODE_TEXT[g.mode] || g.mode) +
+                        '　' + (g.rows ? g.rows.split('').join('、') + ' 的乘法' : '全部') +
+                        '　' + g.people + ' 人';
+        sel.appendChild(o);
+      });
+      loadReport();
+    });
+  }
+
+  function loadReport() {
+    var v = $('groupSel').value;
+    if (!v) { $('reportBox').hidden = true; return; }
+    var g = JSON.parse(v);
+    $('reportBox').hidden = false;
+    $('reportBox').innerHTML = '<span class="sub">載入中…</span>';
+    api('classreport', { day: g.day, mode: g.mode, rows: g.rows }).then(function (r) {
+      if (!r.ok) {
+        $('reportBox').innerHTML = '<span class="msg err">讀不到（' + r.code + '）</span>';
+        return;
+      }
+      repData = r;
+      repSort = { key: 'seat', asc: true };
+      renderReport();
+    });
+  }
+
+  function sortStudents(list) {
+    var k = repSort.key, asc = repSort.asc ? 1 : -1;
+    return list.slice().sort(function (x, y) {
+      var a = x[k], b = y[k];
+      if (a === null || a === undefined) return 1;      // 沒有值一律排最後
+      if (b === null || b === undefined) return -1;
+      return (a > b ? 1 : a < b ? -1 : 0) * asc;
+    });
+  }
+
+  function renderReport() {
+    var r = repData;
+    var h = '';
+
+    /* A ---- 誰做了、考得怎樣 */
+    h += '<div class="repsec"><h3>A　這一次誰做了、考得怎樣</h3>';
+    h += '<p class="why">點欄位標題可排序。「中位思考」是這位學生本場每題思考時間的中位數。</p>';
+    h += '<table class="rep"><tr>' +
+         th('seat', '座號') + th('correct', '答對') + th('total', '題數') +
+         '<th>分數</th>' + th('med', '中位思考') + th('thinkMs', '思考總秒數') +
+         '<th>狀態</th></tr>';
+    sortStudents(r.students).forEach(function (s) {
+      var slow = s.med !== null && s.med >= SLOW_MS;
+      h += '<tr>' +
+        '<td>' + s.seat + (s.name ? ' ' + s.name : '') + '</td>' +
+        '<td class="num">' + s.correct + '</td>' +
+        '<td class="num">' + s.total + '</td>' +
+        '<td class="num"><strong>' + (s.correct * 10) + '</strong></td>' +
+        '<td class="num' + (slow ? ' slow' : '') + '">' +
+          (s.med === null ? '—' : (s.med / 1000).toFixed(1) + ' 秒') + '</td>' +
+        '<td class="num">' + (s.thinkMs / 1000).toFixed(1) + ' 秒</td>' +
+        '<td>' + (s.status === 'partial' ? '未做完' : '完成') + '</td></tr>';
+    });
+    h += '</table>';
+    if (r.missing.length) {
+      h += '<p class="misslist" style="margin:10px 0 0"><strong>還沒做（' +
+           r.missing.length + ' 人）：</strong>' +
+           r.missing.map(function (m) {
+             return m.seat + (m.name ? ' ' + m.name : '') + ' 號';
+           }).join('、') + '</p>';
+    } else {
+      h += '<p class="sub" style="margin:10px 0 0">全班都做了。</p>';
+    }
+    h += '</div>';
+
+    /* B ---- 每一題全班統計 */
+    var cells = r.cells.slice().sort(function (x, y) {
+      return (y.no - x.no) || ((y.avgMs || 0) - (x.avgMs || 0));
+    });
+    h += '<div class="repsec"><h3>B　每一題全班的表現</h3>';
+    h += '<p class="why">依錯的人數排序。<strong>注意「錯很少但很慢」的題目</strong>——' +
+         '熱圖會顯示綠色，但代表全班多半是算出來的，不是背出來的。</p>';
+    h += '<table class="rep"><tr><th>題目</th><th>對</th><th>錯</th><th>沒作答</th>' +
+         '<th>全班中位思考</th></tr>';
+    cells.forEach(function (c) {
+      var slow = c.avgMs !== null && c.avgMs >= SLOW_MS;
+      h += '<tr>' +
+        '<td><strong>' + c.a + ' × ' + c.b + '</strong>　<span class="sub">= ' +
+          (c.a * c.b) + '</span></td>' +
+        '<td class="num">' + c.ok + '</td>' +
+        '<td class="num">' + (c.no || '') + '</td>' +
+        '<td class="num">' + (c.to || '') + '</td>' +
+        '<td class="num' + (slow ? ' slow' : '') + '">' +
+          (c.avgMs === null ? '—' : (c.avgMs / 1000).toFixed(1) + ' 秒') +
+          (slow ? '　偏慢' : '') + '</td></tr>';
+    });
+    h += '</table></div>';
+
+    /* C ---- 常見錯誤答案 */
+    h += '<div class="repsec"><h3>C　全班常犯的錯</h3>';
+    if (!r.errors.length) {
+      h += '<p class="sub">這一場沒有人答錯。</p>';
+    } else {
+      h += '<p class="why">同一個錯誤好幾個人犯，通常不是個別問題，' +
+           '而是講解的方式需要調整。</p><table class="rep">' +
+           '<tr><th>題目</th><th>寫成</th><th>人數</th><th>可能的原因</th></tr>';
+      r.errors.forEach(function (e) {
+        h += '<tr>' +
+          '<td><strong>' + e.a + ' × ' + e.b + '</strong>　<span class="sub">= ' +
+            (e.a * e.b) + '</span></td>' +
+          '<td class="num">' + e.ans + '</td>' +
+          '<td class="num"><strong>' + e.n + '</strong></td>' +
+          '<td>' + (ERR_TEXT[e.type] || '看不出型態') + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    h += '</div>';
+
+    $('reportBox').innerHTML = h;
+
+    Array.prototype.forEach.call($('reportBox').querySelectorAll('th[data-k]'), function (el) {
+      el.onclick = function () {
+        var k = el.getAttribute('data-k');
+        if (repSort.key === k) repSort.asc = !repSort.asc;
+        else repSort = { key: k, asc: true };
+        renderReport();
+      };
+    });
+  }
+
+  function th(key, label) {
+    var on = repSort.key === key;
+    return '<th data-k="' + key + '" class="' + (on ? 'on' : '') + '">' + label +
+           (on ? (repSort.asc ? ' ▲' : ' ▼') : '') + '</th>';
+  }
+
+  $('groupSel').onchange = loadReport;
 
 
   function showDetail(a, b) {

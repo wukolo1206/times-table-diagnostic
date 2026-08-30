@@ -98,6 +98,25 @@ def route_gas(route, request):
                      "correct": 60, "timeouts": 2, "med": 2100},
                     {"answeredAt": "2026-09-15T01:00:00Z", "total": 81,
                      "correct": 71, "timeouts": 0, "med": 1800}]}
+    elif 'action=classgroups' in url:
+        body = {"ok": True, "groups": [
+            {"key": "k1", "day": "2026-09-02", "mode": "sprint", "rows": "7", "people": 2},
+            {"key": "k2", "day": "2026-09-01", "mode": "diagnostic", "rows": "7", "people": 3}]}
+    elif 'action=classreport' in url:
+        body = {"ok": True, "day": "2026-09-02", "mode": "sprint", "rows": "7",
+                "students": [
+                    {"seat": 1, "name": "小明", "total": 9, "correct": 7, "timeouts": 0,
+                     "med": 4200, "cpm": None, "status": "complete", "thinkMs": 31000},
+                    {"seat": 2, "name": "小華", "total": 9, "correct": 9, "timeouts": 0,
+                     "med": 1100, "cpm": None, "status": "complete", "thinkMs": 9900}],
+                "missing": [{"seat": 3, "name": "小美"}],
+                "cells": [
+                    {"a": 7, "b": 8, "ok": 1, "no": 1, "to": 0, "avgMs": 5200, "n": 2},
+                    {"a": 7, "b": 2, "ok": 2, "no": 0, "to": 0, "avgMs": 900, "n": 2},
+                    {"a": 7, "b": 6, "ok": 2, "no": 0, "to": 0, "avgMs": 4800, "n": 2}],
+                "errors": [
+                    {"a": 7, "b": 8, "ans": 54, "n": 8, "type": "other_fact"},
+                    {"a": 7, "b": 6, "ans": 13, "n": 2, "type": "added"}]}
     elif 'action=sessions' in url:
         body = {"ok": True, "sessions": [
             {"id": "s1", "answeredAt": "2026-09-01T09:30:00Z", "mode": "diagnostic",
@@ -539,6 +558,34 @@ def test_teacher(pg):
     pg.select_option('#grp', 'base')
     pg.select_option('#oneSeat', '1')
     pg.wait_for_timeout(200)
+
+    # 全班某一次施測
+    print('== 全班報表')
+    pg.wait_for_selector('#reportBox:not([hidden])', timeout=15000)
+    opts = pg.eval_on_selector_all('#groupSel option', 'e=>e.map(x=>x.textContent)')
+    ck(len(opts) == 2, '列出兩場施測，實際 %d' % len(opts))
+    ck('精熟練習' in opts[0] and '7 的乘法' in opts[0], '選項寫出日期、模式、範圍')
+
+    rep = pg.inner_text('#reportBox')
+    ck('這一次誰做了' in rep, 'A 區塊：誰做了')
+    ck('還沒做（1 人）' in rep and '小美' in rep, 'A 區塊列出沒做的人')
+    ck('70' in rep, 'A 區塊算出分數（7 對 × 10）')
+    ck('4.2 秒' in rep, 'A 區塊顯示中位思考時間')
+
+    ck('每一題全班的表現' in rep, 'B 區塊：每題統計')
+    ck('5.2 秒' in rep and '偏慢' in rep, 'B 區塊標出答對但慢的題目')
+
+    ck('全班常犯的錯' in rep, 'C 區塊：常見錯誤')
+    ck('和別句口訣記混了' in rep, 'C 區塊寫出錯誤原因')
+    ck('把乘法當成加法算' in rep, 'C 區塊分辨不同錯誤型態')
+
+    # 排序
+    slow_first = pg.eval_on_selector_all('#reportBox table.rep th[data-k]', 'e=>e.map(x=>x.textContent)')
+    ck(len(slow_first) >= 4, 'A 區塊的欄位可點擊排序')
+    pg.click('#reportBox table.rep th[data-k="med"]')
+    pg.wait_for_timeout(200)
+    first = pg.eval_on_selector('#reportBox table.rep tr:nth-child(2) td', 'e=>e.textContent')
+    ck('2' in first, '依中位思考排序後最快的排最前（小華）：' + first)
 
     # 每一次測驗的明細
     print('== 單場測驗明細')
