@@ -25,6 +25,7 @@ C23 = (2 - 1) * 9 + (3 - 1)
 
 failed = []
 posted = []
+deleted = []
 
 
 def ck(cond, name):
@@ -98,6 +99,12 @@ def route_gas(route, request):
                      "correct": 60, "timeouts": 2, "med": 2100},
                     {"answeredAt": "2026-09-15T01:00:00Z", "total": 81,
                      "correct": 71, "timeouts": 0, "med": 1800}]}
+    elif 'action=delsession' in url:
+        deleted.append(('session', url))
+        body = {"ok": True, "seat": 1}
+    elif 'action=delgroup' in url:
+        deleted.append(('group', url))
+        body = {"ok": True, "deleted": 2, "seats": 2}
     elif 'action=classgroups' in url:
         body = {"ok": True, "groups": [
             {"key": "k1", "day": "2026-09-02", "mode": "sprint", "rows": "7", "people": 2},
@@ -170,6 +177,11 @@ def route_gas(route, request):
     else:
         body = {"ok": True}
     route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
+
+
+def auto_accept(d):
+    """診斷流程的續作詢問一律確定。教師頁要測「按取消」，用前必須先移除。"""
+    d.accept()
 
 
 def wrong_answer(a, b):
@@ -267,7 +279,7 @@ def test_diagnose(pg):
        '反應毫秒是整數（小數會讓整份上傳被退回）')
 
     # 續作
-    pg.on('dialog', lambda d: d.accept())
+    pg.on('dialog', auto_accept)
     pg.reload()
     pg.wait_for_selector('#quizStage:not([hidden])', timeout=5000)
     ck(pg.inner_text('#prog') == '2 / 9', '重新載入後從第 2 題續作')
@@ -465,6 +477,11 @@ def test_me(pg):
 
 def test_teacher(pg):
     print('== teacher.html')
+    # 移除診斷流程裝的「一律確定」，否則測不到「按取消不會刪」
+    try:
+        pg.remove_listener('dialog', auto_accept)
+    except Exception:
+        pass
     pg.goto(BASE + 'teacher.html?cls=TEST01')
     pg.fill('#pin', '0000')
     pg.click('#login')
@@ -607,6 +624,28 @@ def test_teacher(pg):
     ck('2.1 秒' in qs_txt, '逐題列出秒數')
     ck('沒作答' in qs_txt, '逾時的題目標示出來')
     ck('4.3 秒' in qs_txt, '答錯的題目也有秒數')
+
+    # 刪除單場
+    deleted.clear()
+    ck(pg.eval_on_selector_all('.del-sess', 'e=>e.length') == 2, '每一場都有刪除按鈕')
+    pg.once('dialog', lambda d: d.dismiss())
+    pg.click('.del-sess')
+    pg.wait_for_timeout(400)
+    ck(len(deleted) == 0, '按取消不會刪')
+    pg.once('dialog', lambda d: d.accept())
+    pg.click('.del-sess')
+    pg.wait_for_timeout(1200)
+    ck(len(deleted) == 1 and deleted[0][0] == 'session', '確認後才真的刪')
+    ck('id=s1' in deleted[0][1], '刪的是被點的那一場')
+
+    # 刪整場
+    pg.wait_for_selector('#delGroup', timeout=15000)
+    deleted.clear()
+    ck('2 人的紀錄' in pg.inner_text('#delGroup'), '按鈕寫出會刪幾個人的紀錄')
+    pg.once('dialog', lambda d: d.dismiss())
+    pg.click('#delGroup')
+    pg.wait_for_timeout(400)
+    ck(len(deleted) == 0, '整場刪除按取消也不會刪')
 
     pg.click('#printAll')
     pg.wait_for_timeout(300)

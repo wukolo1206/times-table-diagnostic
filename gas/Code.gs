@@ -374,6 +374,13 @@ function doGet(e) {
     if (action === 'session') {
       return jsonOut_(apiSession(code, e.parameter.pin, e.parameter.id));
     }
+    if (action === 'delsession') {
+      return jsonOut_(apiDeleteSession(code, e.parameter.pin, e.parameter.id));
+    }
+    if (action === 'delgroup') {
+      return jsonOut_(apiDeleteGroup(code, e.parameter.pin, e.parameter.day,
+                                     e.parameter.mode, e.parameter.rows || ''));
+    }
     if (action === 'classgroups') {
       return jsonOut_(apiClassGroups(code, e.parameter.pin));
     }
@@ -786,6 +793,74 @@ function apiClassReport(code, pin, day, mode, rowsFilter) {
   return { ok: true, day: day, mode: mode, rows: rowsFilter,
            students: students, missing: missing, cells: cells,
            errors: errors.slice(0, 20) };
+}
+
+
+/* ============================================================
+ * 刪除單場／單次施測（教師用，需 PIN）
+ * ========================================================== */
+
+/**
+ * 刪一場。刪完一定要重算該生快照——
+ * 只刪場次不重算的話，熱圖還留著已刪資料算出來的顏色。
+ */
+function apiDeleteSession(code, pin, id) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) return { ok: false, code: 'BUSY', retry: true };
+  var seat = null;
+  try {
+    var sh = sheet_(T_SESSION, sessionHeaders());
+    var rows = sh.getDataRange().getValues();
+    for (var i = rows.length - 1; i >= 1; i--) {
+      if (String(rows[i][4]) !== String(code)) continue;
+      if (String(rows[i][3]) !== String(id)) continue;
+      seat = Number(rows[i][5]);
+      sh.deleteRow(i + 1);
+      break;
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  if (seat === null) return { ok: false, code: 'SESSION_NOT_FOUND' };
+
+  updateSnapshot_(code, seat, chk.cls.thresholdMs);
+  return { ok: true, seat: seat };
+}
+
+/** 刪整場施測（同一天＋同模式＋同範圍的全部學生）。 */
+function apiDeleteGroup(code, pin, day, mode, rowsFilter) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) return { ok: false, code: 'BUSY', retry: true };
+  var seats = {}, n = 0;
+  try {
+    var sh = sheet_(T_SESSION, sessionHeaders());
+    var rows = sh.getDataRange().getValues();
+    // 由後往前刪，否則刪一列後面的索引就位移了
+    for (var i = rows.length - 1; i >= 1; i--) {
+      if (String(rows[i][4]) !== String(code)) continue;
+      if (dayOf_(rows[i][1]) !== String(day)) continue;
+      if (rows[i][7] !== mode) continue;
+      var cfg = {};
+      try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
+      if (String(cfg.rows || '') !== String(rowsFilter)) continue;
+      seats[Number(rows[i][5])] = 1;
+      sh.deleteRow(i + 1);
+      n++;
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  Object.keys(seats).forEach(function (st) {
+    updateSnapshot_(code, Number(st), chk.cls.thresholdMs);
+  });
+  return { ok: true, deleted: n, seats: Object.keys(seats).length };
 }
 
 /* ============================================================

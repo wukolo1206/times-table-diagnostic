@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608301333">
+<link rel="stylesheet" href="style.css?v=202608302043">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -52,6 +52,11 @@
   .repsec .why { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
   .slow { color: var(--weak); font-weight: 700; }
   .misslist { font-size: 15px; line-height: 1.9; color: var(--weak); }
+  button.del-sess {
+    font-size: 13px; padding: 4px 10px; background: #fff;
+    color: var(--weak); border: 1px solid var(--line);
+  }
+  button.del-sess:disabled { color: var(--muted); }
   ul.weaklist { padding-left: 20px; line-height: 1.9; font-size: 16px; margin: 10px 0 0; }
   #printArea { display: none; }
   @media print {
@@ -186,8 +191,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608301333"></script>
-<script src="config.js?v=202608301333"></script>
+<script src="fact-core.js?v=202608302043"></script>
+<script src="config.js?v=202608302043"></script>
 <script>
 (function () {
   'use strict';
@@ -526,7 +531,7 @@
       return;
     }
     var h = '<table class="sess"><tr><th>時間</th><th>種類</th><th>範圍</th>' +
-            '<th>分數</th><th>對／題</th><th>思考總秒數</th></tr>';
+            '<th>分數</th><th>對／題</th><th>思考總秒數</th><th></th></tr>';
     list.forEach(function (s) {
       h += '<tr class="pick" data-id="' + s.id + '">' +
            '<td>' + fmtTime(s.answeredAt) + '</td>' +
@@ -535,7 +540,9 @@
            '<td>' + (s.rows ? s.rows.split('').join('、') : '全部') + '</td>' +
            '<td><strong>' + (s.correct * 10) + '</strong></td>' +
            '<td>' + s.correct + ' / ' + s.total + '</td>' +
-           '<td>' + fmtSec(s.thinkMs) + '</td></tr>';
+           '<td>' + fmtSec(s.thinkMs) + '</td>' +
+           '<td><button class="del-sess" data-id="' + s.id + '" data-when="' +
+             fmtTime(s.answeredAt) + '">刪除</button></td></tr>';
     });
     h += '</table><p class="sub" style="margin:8px 0 0">' +
          '點任一列看每題的秒數。「思考總秒數」是每題從看到題目到開始寫的時間加總，' +
@@ -545,7 +552,30 @@
     $('sessionBox').hidden = false;
 
     Array.prototype.forEach.call($('sessionBox').querySelectorAll('tr.pick'), function (tr) {
-      tr.onclick = function () { loadOneSession(tr.getAttribute('data-id')); };
+      tr.onclick = function (ev) {
+        if (ev.target.classList.contains('del-sess')) return;   // 按刪除不要同時展開
+        loadOneSession(tr.getAttribute('data-id'));
+      };
+    });
+
+    Array.prototype.forEach.call($('sessionBox').querySelectorAll('.del-sess'), function (btn) {
+      btn.onclick = function (ev) {
+        ev.stopPropagation();
+        var id = btn.getAttribute('data-id');
+        if (!confirm('要刪掉 ' + btn.getAttribute('data-when') + ' 這一場嗎？' + NL +
+                     '刪掉後熱圖會重新計算，無法復原。')) return;
+        btn.disabled = true;
+        btn.textContent = '刪除中';
+        api('delsession', { id: id }).then(function (r) {
+          if (!r.ok) {
+            btn.disabled = false;
+            btn.textContent = '刪除';
+            alert('刪不掉：' + r.code);
+            return;
+          }
+          load();                       // 重抓 Dashboard，熱圖與統計一起更新
+        });
+      };
     });
   }
 
@@ -718,7 +748,29 @@
     }
     h += '</div>';
 
+    h += '<div class="repsec"><button id="delGroup" class="ghost small" ' +
+         'style="color:var(--weak);border-color:var(--weak)">刪掉整場（' +
+         r.students.length + ' 人的紀錄）</button></div>';
+
     $('reportBox').innerHTML = h;
+
+    $('delGroup').onclick = function () {
+      var g = JSON.parse($('groupSel').value);
+      var label = g.day + ' ' + (MODE_TEXT[g.mode] || g.mode);
+      if (!confirm('要刪掉「' + label + '」整場嗎？' + NL +
+                   r.students.length + ' 位學生的紀錄都會刪掉，熱圖會重新計算，無法復原。')) return;
+      $('delGroup').disabled = true;
+      $('delGroup').textContent = '刪除中…';
+      api('delgroup', { day: g.day, mode: g.mode, rows: g.rows }).then(function (res) {
+        if (!res.ok) {
+          $('delGroup').disabled = false;
+          $('delGroup').textContent = '刪掉整場';
+          alert('刪不掉：' + res.code);
+          return;
+        }
+        load();
+      });
+    };
 
     Array.prototype.forEach.call($('reportBox').querySelectorAll('th[data-k]'), function (el) {
       el.onclick = function () {
