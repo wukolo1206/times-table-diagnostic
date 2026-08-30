@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608302043">
+<link rel="stylesheet" href="style.css?v=202608302051">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -47,6 +47,7 @@
   table.rep th { color: var(--muted); font-weight: 600; font-size: 13px; cursor: pointer; }
   table.rep th.on { color: var(--accent); }
   table.rep td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.rep input[type="checkbox"] { width: 17px; height: 17px; }
   .repsec { margin-top: 18px; }
   .repsec h3 { font-size: 16px; margin: 0 0 4px; }
   .repsec .why { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
@@ -191,8 +192,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608302043"></script>
-<script src="config.js?v=202608302043"></script>
+<script src="fact-core.js?v=202608302051"></script>
+<script src="config.js?v=202608302051"></script>
 <script>
 (function () {
   'use strict';
@@ -678,12 +679,14 @@
     h += '<div class="repsec"><h3>A　這一次誰做了、考得怎樣</h3>';
     h += '<p class="why">點欄位標題可排序。「中位思考」是這位學生本場每題思考時間的中位數。</p>';
     h += '<table class="rep"><tr>' +
+         '<th style="width:34px"><input type="checkbox" id="pickAll" title="全選"></th>' +
          th('seat', '座號') + th('correct', '答對') + th('total', '題數') +
          '<th>分數</th>' + th('med', '中位思考') + th('thinkMs', '思考總秒數') +
          '<th>狀態</th></tr>';
     sortStudents(r.students).forEach(function (s) {
       var slow = s.med !== null && s.med >= SLOW_MS;
       h += '<tr>' +
+        '<td><input type="checkbox" class="pick-seat" value="' + s.seat + '"></td>' +
         '<td>' + s.seat + (s.name ? ' ' + s.name : '') + '</td>' +
         '<td class="num">' + s.correct + '</td>' +
         '<td class="num">' + s.total + '</td>' +
@@ -748,29 +751,13 @@
     }
     h += '</div>';
 
-    h += '<div class="repsec"><button id="delGroup" class="ghost small" ' +
-         'style="color:var(--weak);border-color:var(--weak)">刪掉整場（' +
-         r.students.length + ' 人的紀錄）</button></div>';
+    h += '<div class="repsec"><button id="delPicked" class="ghost small" disabled ' +
+         'style="color:var(--weak);border-color:var(--weak)">刪除勾選的</button>' +
+         '<span class="sub" style="margin-left:10px">勾左邊的方框選人，' +
+         '全選就是整場刪掉。</span></div>';
 
     $('reportBox').innerHTML = h;
-
-    $('delGroup').onclick = function () {
-      var g = JSON.parse($('groupSel').value);
-      var label = g.day + ' ' + (MODE_TEXT[g.mode] || g.mode);
-      if (!confirm('要刪掉「' + label + '」整場嗎？' + NL +
-                   r.students.length + ' 位學生的紀錄都會刪掉，熱圖會重新計算，無法復原。')) return;
-      $('delGroup').disabled = true;
-      $('delGroup').textContent = '刪除中…';
-      api('delgroup', { day: g.day, mode: g.mode, rows: g.rows }).then(function (res) {
-        if (!res.ok) {
-          $('delGroup').disabled = false;
-          $('delGroup').textContent = '刪掉整場';
-          alert('刪不掉：' + res.code);
-          return;
-        }
-        load();
-      });
-    };
+    bindPicker(r);
 
     Array.prototype.forEach.call($('reportBox').querySelectorAll('th[data-k]'), function (el) {
       el.onclick = function () {
@@ -780,6 +767,65 @@
         renderReport();
       };
     });
+  }
+
+
+  /** A 表的勾選：全選＝整場，勾幾個就刪幾個。 */
+  function bindPicker(r) {
+    var boxes = $('reportBox').querySelectorAll('.pick-seat');
+    var all = $('pickAll');
+    var btn = $('delPicked');
+
+    function picked() {
+      var out = [];
+      Array.prototype.forEach.call(boxes, function (b) {
+        if (b.checked) out.push(Number(b.value));
+      });
+      return out;
+    }
+
+    function refresh() {
+      var n = picked().length;
+      btn.disabled = (n === 0);
+      btn.textContent = n === 0 ? '刪除勾選的'
+        : (n === boxes.length ? ('刪掉整場（' + n + ' 人）') : ('刪除勾選的 ' + n + ' 人'));
+      all.checked = (n > 0 && n === boxes.length);
+      all.indeterminate = (n > 0 && n < boxes.length);
+    }
+
+    all.onclick = function () {
+      Array.prototype.forEach.call(boxes, function (b) { b.checked = all.checked; });
+      refresh();
+    };
+    Array.prototype.forEach.call(boxes, function (b) { b.onclick = refresh; });
+
+    btn.onclick = function () {
+      var seats = picked();
+      if (!seats.length) return;
+      var g = JSON.parse($('groupSel').value);
+      var label = g.day + ' ' + (MODE_TEXT[g.mode] || g.mode);
+      var whole = (seats.length === boxes.length);
+      var msg = whole
+        ? ('要刪掉「' + label + '」整場嗎？' + NL + seats.length + ' 位學生的紀錄都會刪掉。')
+        : ('要刪掉「' + label + '」裡這 ' + seats.length + ' 位的紀錄嗎？' + NL +
+           '座號：' + seats.join('、'));
+      if (!confirm(msg + NL + '熱圖會重新計算，無法復原。')) return;
+
+      btn.disabled = true;
+      btn.textContent = '刪除中…';
+      api('delgroup', { day: g.day, mode: g.mode, rows: g.rows,
+                        seats: whole ? '' : seats.join(',') }).then(function (res) {
+        if (!res.ok) {
+          btn.disabled = false;
+          refresh();
+          alert('刪不掉：' + res.code);
+          return;
+        }
+        load();
+      });
+    };
+
+    refresh();
   }
 
   function th(key, label) {

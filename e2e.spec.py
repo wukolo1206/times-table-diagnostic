@@ -601,7 +601,9 @@ def test_teacher(pg):
     ck(len(slow_first) >= 4, 'A 區塊的欄位可點擊排序')
     pg.click('#reportBox table.rep th[data-k="med"]')
     pg.wait_for_timeout(200)
-    first = pg.eval_on_selector('#reportBox table.rep tr:nth-child(2) td', 'e=>e.textContent')
+    # 第一欄現在是勾選框，座號在第二欄
+    first = pg.eval_on_selector('#reportBox table.rep tr:nth-child(2) td:nth-child(2)',
+                                'e=>e.textContent')
     ck('2' in first, '依中位思考排序後最快的排最前（小華）：' + first)
 
     # 每一次測驗的明細
@@ -638,14 +640,36 @@ def test_teacher(pg):
     ck(len(deleted) == 1 and deleted[0][0] == 'session', '確認後才真的刪')
     ck('id=s1' in deleted[0][1], '刪的是被點的那一場')
 
-    # 刪整場
-    pg.wait_for_selector('#delGroup', timeout=15000)
+    # 勾選刪除
+    pg.wait_for_selector('#delPicked', timeout=15000)
     deleted.clear()
-    ck('2 人的紀錄' in pg.inner_text('#delGroup'), '按鈕寫出會刪幾個人的紀錄')
+    ck(pg.eval_on_selector('#delPicked', 'e=>e.disabled') is True, '沒勾人時不能刪')
+    ck(pg.eval_on_selector_all('.pick-seat', 'e=>e.length') == 2, '每位學生一個勾選框')
+
+    pg.check('.pick-seat')
+    ck(pg.eval_on_selector('#delPicked', 'e=>e.disabled') is False, '勾了就能刪')
+    ck('1 人' in pg.inner_text('#delPicked'), '按鈕寫出勾了幾人：' + pg.inner_text('#delPicked'))
+    ck(pg.eval_on_selector('#pickAll', 'e=>e.indeterminate') is True, '只勾部分時全選框呈半選')
+
+    pg.check('#pickAll')
+    ck(pg.eval_on_selector_all('.pick-seat:checked', 'e=>e.length') == 2, '全選會勾起全部')
+    ck('整場' in pg.inner_text('#delPicked'), '全選時按鈕改說「刪掉整場」')
+
+    pg.uncheck('#pickAll')
+    ck(pg.eval_on_selector('#delPicked', 'e=>e.disabled') is True, '取消全選後不能刪')
+
+    # 只刪一位
+    pg.check('.pick-seat')
     pg.once('dialog', lambda d: d.dismiss())
-    pg.click('#delGroup')
+    pg.click('#delPicked')
     pg.wait_for_timeout(400)
-    ck(len(deleted) == 0, '整場刪除按取消也不會刪')
+    ck(len(deleted) == 0, '按取消不會刪')
+
+    pg.once('dialog', lambda d: d.accept())
+    pg.click('#delPicked')
+    pg.wait_for_timeout(1200)
+    ck(len(deleted) == 1 and deleted[0][0] == 'group', '確認後才刪')
+    ck('seats=1' in deleted[0][1], '只送出被勾的座號，不是整場：' + deleted[0][1].split('&seats=')[-1][:12])
 
     pg.click('#printAll')
     pg.wait_for_timeout(300)

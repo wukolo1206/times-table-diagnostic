@@ -379,7 +379,8 @@ function doGet(e) {
     }
     if (action === 'delgroup') {
       return jsonOut_(apiDeleteGroup(code, e.parameter.pin, e.parameter.day,
-                                     e.parameter.mode, e.parameter.rows || ''));
+                                     e.parameter.mode, e.parameter.rows || '',
+                                     e.parameter.seats || ''));
     }
     if (action === 'classgroups') {
       return jsonOut_(apiClassGroups(code, e.parameter.pin));
@@ -830,10 +831,23 @@ function apiDeleteSession(code, pin, id) {
   return { ok: true, seat: seat };
 }
 
-/** 刪整場施測（同一天＋同模式＋同範圍的全部學生）。 */
-function apiDeleteGroup(code, pin, day, mode, rowsFilter) {
+/**
+ * 刪一場施測。seatsCsv 給空字串代表整場全刪，
+ * 給 "1,5,7" 則只刪那幾位——老師常常只想刪掉某幾個人的誤觸紀錄。
+ */
+function apiDeleteGroup(code, pin, day, mode, rowsFilter, seatsCsv) {
   var chk = checkPin_(code, pin);
   if (!chk.ok) return chk;
+
+  var only = null;
+  if (seatsCsv) {
+    only = {};
+    String(seatsCsv).split(',').forEach(function (x) {
+      var v = Number(x);
+      if (Number.isInteger(v)) only[v] = 1;
+    });
+    if (!Object.keys(only).length) return { ok: false, code: 'NO_SEATS' };
+  }
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(LOCK_WAIT_MS)) return { ok: false, code: 'BUSY', retry: true };
@@ -849,7 +863,9 @@ function apiDeleteGroup(code, pin, day, mode, rowsFilter) {
       var cfg = {};
       try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
       if (String(cfg.rows || '') !== String(rowsFilter)) continue;
-      seats[Number(rows[i][5])] = 1;
+      var st = Number(rows[i][5]);
+      if (only && !only[st]) continue;
+      seats[st] = 1;
       sh.deleteRow(i + 1);
       n++;
     }
