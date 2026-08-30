@@ -119,7 +119,7 @@ def route_gas(route, request):
                     {"a": 7, "b": 6, "ans": 13, "n": 2, "type": "added"}]}
     elif 'action=sessions' in url:
         body = {"ok": True, "sessions": [
-            {"id": "s1", "answeredAt": "2026-09-01T09:30:00Z", "mode": "diagnostic",
+            {"id": "s1", "answeredAt": "2026-09-01T01:24:00Z", "mode": "diagnostic",
              "context": "class", "status": "complete", "rows": "7", "limitSec": None,
              "total": 9, "correct": 7, "timeouts": 0, "med": 2100, "cpm": None,
              "thinkMs": 18500},
@@ -595,6 +595,9 @@ def test_teacher(pg):
     sess = pg.eval_on_selector_all('table.sess tr.pick', 'e=>e.map(x=>x.innerText)')
     ck(len(sess) == 2, '列出 2 場，實際 %d 場' % len(sess))
     ck('課堂診斷' in sess[0], '寫出測驗種類')
+    # 存的是 UTC，畫面要顯示當地時間（台北 = UTC+8，01:24Z → 09:24）
+    ck('09:24' in sess[0], '時間轉成當地時間顯示')
+    ck('01:24' not in sess[0], '不會直接把 UTC 秀出來')
     ck('70' in sess[0], '顯示分數（7 對 × 10）')
     ck('18.5 秒' in sess[0], '顯示思考總秒數')
     pg.click('table.sess tr.pick')

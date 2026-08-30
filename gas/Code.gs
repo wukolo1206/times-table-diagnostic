@@ -91,6 +91,14 @@ function seedDemoClass() {
  * 共用查詢
  * ========================================================== */
 
+/**
+ * 取台灣日期。作答時間存的是 UTC ISO 字串，直接取前 10 碼會用到 UTC 日期——
+ * 台灣早上 8 點以前的場次會被分到前一天。
+ */
+function dayOf_(iso) {
+  return Utilities.formatDate(new Date(iso), 'Asia/Taipei', 'yyyy-MM-dd');
+}
+
 function jsonOut_(o) {
   return ContentService.createTextOutput(JSON.stringify(o))
     .setMimeType(ContentService.MimeType.JSON);
@@ -667,7 +675,7 @@ function apiClassGroups(code, pin) {
   var map = {};
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][4]) !== String(code)) continue;
-    var day = String(rows[i][1]).slice(0, 10);
+    var day = dayOf_(rows[i][1]);
     var mode = rows[i][7];
     var cfg = {};
     try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
@@ -704,7 +712,7 @@ function apiClassReport(code, pin, day, mode, rowsFilter) {
 
   for (var i = 1; i < all.length; i++) {
     if (String(all[i][4]) !== String(code)) continue;
-    if (String(all[i][1]).slice(0, 10) !== String(day)) continue;
+    if (dayOf_(all[i][1]) !== String(day)) continue;
     if (all[i][7] !== mode) continue;
     var cfg = {};
     try { cfg = JSON.parse(all[i][10]) || {}; } catch (e) { cfg = {}; }

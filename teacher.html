@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608301315">
+<link rel="stylesheet" href="style.css?v=202608301333">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -186,8 +186,8 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608301315"></script>
-<script src="config.js?v=202608301315"></script>
+<script src="fact-core.js?v=202608301333"></script>
+<script src="config.js?v=202608301333"></script>
 <script>
 (function () {
   'use strict';
@@ -341,7 +341,7 @@
     var cnt = countLevels(cells);
     var list = C.weakList(cells, 8);
     var who = stu.name || (stu.seat + ' 號');
-    var date = stu.lastAt ? String(stu.lastAt).slice(0, 10) : '';
+    var date = stu.lastAt ? fmtDate(stu.lastAt) : '';
 
     var L = [];
     L.push('【九九乘法診斷結果】' + who);
@@ -405,7 +405,7 @@
       '很熟 ' + cnt.fluent + '　不熟 ' + cnt.shaky + '　不會 ' + cnt.weak +
       '　沒測過 ' + cnt.none +
       '<br><span class="sub">課堂診斷 ' + (c.diag || 0) + ' 次　練習 ' + practiceN + ' 次' +
-      (stu.lastAt ? '　最近一次：' + String(stu.lastAt).slice(0, 10) : '') + '</span>';
+      (stu.lastAt ? '　最近一次：' + fmtDate(stu.lastAt) : '') + '</span>';
 
     // 只做過練習卻沒做診斷時，預設視角會是全空白——不解釋的話看起來像資料掉了
     var onlyPractice = (g === 'base' && (c.diag || 0) === 0 && practiceN > 0);
@@ -419,7 +419,6 @@
         $('grp').value = 'all';
         render();
         renderOne();
-        loadGroups();
       };
     }
 
@@ -491,6 +490,22 @@
 
   var MODE_TEXT = { diagnostic: '課堂診斷', sprint: '精熟練習', practice: '練習' };
 
+  /** 作答時間存的是 UTC，畫面一律轉成裝置的當地時間顯示。 */
+  function fmtTime(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 16).replace('T', ' ');
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+           ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function fmtDate(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+
   function fmtSec(ms) {
     if (!ms) return '—';
     return (ms / 1000).toFixed(1) + ' 秒';
@@ -514,7 +529,7 @@
             '<th>分數</th><th>對／題</th><th>思考總秒數</th></tr>';
     list.forEach(function (s) {
       h += '<tr class="pick" data-id="' + s.id + '">' +
-           '<td>' + String(s.answeredAt).slice(0, 16).replace('T', ' ') + '</td>' +
+           '<td>' + fmtTime(s.answeredAt) + '</td>' +
            '<td>' + (MODE_TEXT[s.mode] || s.mode) +
              (s.status === 'partial' ? '<br><span class="sub">未做完</span>' : '') + '</td>' +
            '<td>' + (s.rows ? s.rows.split('').join('、') : '全部') + '</td>' +
@@ -539,7 +554,7 @@
     api('session', { id: id }).then(function (r) {
       if (!r.ok) { $('qsBox').innerHTML = '<span class="msg err">讀不到（' + r.code + '）</span>'; return; }
       var h = '<h2 style="font-size:17px;margin:14px 0 4px">' +
-              String(r.answeredAt).slice(0, 16).replace('T', ' ') + '　' +
+              fmtTime(r.answeredAt) + '　' +
               (MODE_TEXT[r.mode] || r.mode) + '</h2>' +
               '<div class="sub">答對 ' + r.correct + ' / ' + r.total +
               '　得分 ' + (r.correct * 10) +
@@ -823,6 +838,7 @@
         });
         render();
         renderOne();
+        loadGroups();
       })
       .catch(function () {
         $('loginMsg').className = 'msg err';
