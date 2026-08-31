@@ -856,6 +856,86 @@ eq('多列一起算', C.progressOf(allFluentExcept([C.cellIndex(7, 8), C.cellInd
 eq('空範圍不炸掉', C.progressOf(allFluentExcept([]), []),
    { green: 0, total: 0, remain: 0 });
 
+
+/* =============================================================
+ * 12. 進步視圖（多次練習後的呈現）
+ * =========================================================== */
+group('12. 進步視圖');
+
+function at(ms, ok, flags) {
+  return { ms: ms, ok: ok === undefined ? 1 : ok, flags: flags || 0 };
+}
+
+eq('沒作答過就沒有進步可談',
+   C.cellProgress([], 3000).tries, 0);
+eq('只做過一次不算卡住（那只是還沒練）',
+   C.cellProgress([at(9000, 0)], 3000).stuck, false);
+eq('練兩次還不算卡住',
+   C.cellProgress([at(9000, 0), at(7000)], 3000).stuck, false);
+eq('練三次仍未熟練 → 卡住',
+   C.cellProgress([at(9000, 0), at(7000), at(6400)], 3000).stuck, true);
+eq('練三次後熟練 → 不算卡住',
+   C.cellProgress([at(9000, 0), at(7000), at(2400)], 3000).stuck, false);
+eq('本來就熟練，不算「練起來了」',
+   C.cellProgress([at(2000), at(1800)], 3000).gained, false);
+eq('由不熟變熟練 → 練起來了',
+   C.cellProgress([at(5000), at(2400)], 3000).gained, true);
+eq('退步：delta 為負',
+   C.cellProgress([at(2000), at(5000)], 3000).delta < 0, true);
+eq('比的是第一次與最後一次，不是中位數',
+   C.cellProgress([at(7000), at(7000), at(7000), at(2000)], 3000).last, C.LEVEL.FLUENT);
+eq('無效作答不參與比較（切分頁那次不算）',
+   C.cellProgress([at(9000, 1, C.FLAG.HIDDEN), at(2400)], 3000).tries, 1);
+eq('門檻不同，結論就不同（2 秒門檻下 2.4 秒還不算熟）',
+   C.cellProgress([at(5000), at(2400)], 2000).gained, false);
+
+function hist(seat, name, idx, arr) {
+  var cells = [];
+  for (var i = 0; i < 81; i++) cells.push(i === idx ? arr : []);
+  return { seat: seat, name: name, cells: cells };
+}
+
+var IDX78 = C.cellIndex(7, 8);
+var cls = C.classProgress([
+  hist(1, '甲', IDX78, [at(5000), at(2400)]),                 // 練起來了
+  hist(2, '乙', IDX78, [at(9000, 0), at(7000), at(6400)]),    // 卡住
+  hist(3, '丙', IDX78, [at(2000)]),                            // 只做過一次
+  hist(4, '丁', IDX78, [])                                     // 沒做過
+], 3000);
+var c78 = cls[IDX78];
+eq('做過的人數', c78.tried, 3);
+eq('重複練過的人數', c78.retried, 2);
+eq('練起來的人數', c78.gained, 1);
+eq('卡住的人數', c78.stuck, 1);
+eq('有人卡住就整格判卡住（不被其他人稀釋）', c78.status, C.PROG.STUCK);
+eq('卡住的是誰要指名道姓', c78.who, [{ seat: 2, name: '乙', tries: 3 }]);
+
+var noStuck = C.classProgress([
+  hist(1, '甲', IDX78, [at(5000), at(2400)]),
+  hist(2, '乙', IDX78, [at(6000), at(2200)])
+], 3000);
+eq('都練起來了 → 綠', noStuck[IDX78].status, C.PROG.GAINED);
+
+var mixed = C.classProgress([
+  hist(1, '甲', IDX78, [at(5000), at(2400)]),
+  hist(2, '乙', IDX78, [at(6000), at(5000)])
+], 3000);
+eq('有人變好有人還沒到 → 黃', mixed[IDX78].status, C.PROG.MIXED);
+eq('沒人重複練過 → 灰',
+   C.classProgress([hist(1, '甲', IDX78, [at(2000)])], 3000)[IDX78].status, C.PROG.NONE);
+eq('沒有資料的格子也是灰', noStuck[0].status, C.PROG.NONE);
+
+var many = C.classProgress([
+  hist(1, '甲', IDX78, [at(9000, 0), at(7000), at(6400)]),
+  hist(2, '乙', IDX78, [at(9000, 0), at(7000), at(6400)]),
+  hist(3, '丙', C.cellIndex(6, 9), [at(9000, 0), at(7000), at(6400)])
+], 3000);
+var sb = C.stubbornCells(many);
+eq('頑固格：卡住的人多的排前面', [sb[0].a, sb[0].b], [7, 8]);
+eq('頑固格只列真的卡住的', sb.length, 2);
+eq('頑固格可限制筆數', C.stubbornCells(many, 1).length, 1);
+eq('沒有頑固格時回空陣列', C.stubbornCells(noStuck).length, 0);
+
 /* ===== 結果 ===== */
 console.log('\n' + '='.repeat(50));
 console.log('  PASS ' + pass + '   FAIL ' + fail);

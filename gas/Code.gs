@@ -382,6 +382,7 @@ function doGet(e) {
                                      e.parameter.mode, e.parameter.rows || '',
                                      e.parameter.seats || ''));
     }
+    if (action === 'progress') return jsonOut_(apiProgress(code, e.parameter.pin));
     if (action === 'classgroups') {
       return jsonOut_(apiClassGroups(code, e.parameter.pin));
     }
@@ -562,6 +563,60 @@ function apiDashboard(code, pin) {
     students: students,
     anomalies: findAnomalies_(code)
   };
+}
+
+
+/**
+ * 全班的「進步視圖」原始資料：每位學生每一格的作答序列。
+ *
+ * 只回傳原始毫秒，等級與顏色一律由前端依當下門檻計算（D3）——
+ * 若在這裡就算成「熟練／不熟」，老師一改門檻，歷史資料就全部作廢。
+ *
+ * 不分診斷與練習：這張圖問的是「練了有沒有用」，把練習排掉就沒有東西可比。
+ */
+function apiProgress(code, pin) {
+  var chk = checkPin_(code, pin);
+  if (!chk.ok) return chk;
+  var cls = chk.cls;
+
+  var rows = sheet_(T_SESSION, sessionHeaders()).getDataRange().getValues();
+  var mine = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][4]) !== String(code)) continue;
+    mine.push(rows[i]);
+  }
+  // 一律依作答時間排序，與到達順序無關——補送與亂序上傳不得影響「第一次 vs 最後一次」
+  mine.sort(function (x, y) {
+    return String(x[1]) < String(y[1]) ? -1 : String(x[1]) > String(y[1]) ? 1 : 0;
+  });
+
+  var bySeat = {};
+  mine.forEach(function (r) {
+    var seat = Number(r[5]);
+    if (!bySeat[seat]) bySeat[seat] = {};
+    var detail = [];
+    try { detail = JSON.parse(r[16]) || []; } catch (e) { detail = []; }
+    var day = dayOf_(String(r[1]));
+    detail.forEach(function (d) {
+      var idx = FactCore.cellIndex(d[0], d[1]);
+      if (!bySeat[seat][idx]) bySeat[seat][idx] = [];
+      bySeat[seat][idx].push([d[4], d[3], d[5], day]);   // ms, ok, flags, 日期
+    });
+  });
+
+  var roster = sheet_(T_STUDENT, studentHeaders()).getDataRange().getValues();
+  var out = [];
+  for (var k = 1; k < roster.length; k++) {
+    if (String(roster[k][0]) !== String(code)) continue;
+    var seat2 = Number(roster[k][1]);
+    out.push({
+      seat: seat2,
+      name: cls.seatOnly ? '' : roster[k][2],
+      cells: bySeat[seat2] || {}
+    });
+  }
+  out.sort(function (x, y) { return x.seat - y.seat; });
+  return { ok: true, className: cls.name, seatOnly: cls.seatOnly, students: out };
 }
 
 /**

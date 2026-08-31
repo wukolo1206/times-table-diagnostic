@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608312108">
+<link rel="stylesheet" href="style.css?v=202608312132">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -99,6 +99,12 @@
     <div class="bar">
       <strong id="cname" style="font-size:19px"></strong>
       <span id="coverage" class="sub" style="margin:0"></span>
+      <label>看法
+        <select id="view">
+          <option value="now">現在的熟練狀況</option>
+          <option value="prog">練了之後的進步</option>
+        </select>
+      </label>
       <label>資料範圍
         <select id="grp">
           <option value="base">只看課堂診斷</option>
@@ -139,9 +145,17 @@
       <div class="main">
         <div class="card" id="cardHeat">
           <div class="gridwrap"><table class="heat" id="heat"></table></div>
-          <p class="sub" style="margin:10px 0 0">
+          <p class="sub" style="margin:10px 0 0" id="heatNote">
             格子顏色＝該題不會＋不熟的人數比例。斜紋＝做過的人不到六成，先別當結論。點任一格看是哪些人。
           </p>
+        </div>
+
+        <div class="card" id="cardStuck" hidden>
+          <h2 style="margin:0 0 6px">練了還是卡住的算式</h2>
+          <p class="sub" style="margin:0 0 10px">
+            練過三次以上、最近一次仍未達熟練的人。這些靠自己練不會好，通常是概念沒通。
+          </p>
+          <ol id="stuckList" class="top"></ol>
         </div>
         <div class="card" id="cardReport">
           <h2 style="margin:0 0 6px">全班某一次施測</h2>
@@ -209,9 +223,9 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608312108"></script>
-<script src="fact-chart.js?v=202608312108"></script>
-<script src="config.js?v=202608312108"></script>
+<script src="fact-core.js?v=202608312132"></script>
+<script src="fact-chart.js?v=202608312132"></script>
+<script src="config.js?v=202608312132"></script>
 <script>
 (function () {
   'use strict';
@@ -251,6 +265,124 @@
     });
   }
 
+
+  /* ---- 進步視圖：練過多次之後才看得出價值 ---- */
+
+  var progData = null;      // 每位學生每一格的作答序列（原始毫秒）
+  var progBusy = false;
+
+  function view() { return $('view').value; }
+
+  /** 伺服器回的 cells 是 { 格索引: [[ms, ok, flags, 日期], ...] }，轉成核心要的形狀。 */
+  function progHists() {
+    return (progData.students || []).map(function (s) {
+      var cells = [];
+      for (var i = 0; i < 81; i++) {
+        var raw = s.cells[i] || s.cells[String(i)] || [];
+        cells.push(raw.map(function (r) {
+          return { ms: r[0], ok: r[1], flags: r[2], day: r[3] };
+        }));
+      }
+      return { seat: s.seat, name: s.name, cells: cells };
+    });
+  }
+
+  function loadProgress() {
+    if (progData || progBusy) { render(); return; }
+    progBusy = true;
+    $('heatNote').textContent = '讀取歷次紀錄中…';
+    api('progress', {}).then(function (r) {
+      progBusy = false;
+      if (!r.ok) { $('heatNote').textContent = '讀不到歷次紀錄（' + r.code + '）'; return; }
+      progData = r;
+      render();
+    }).catch(function () {
+      progBusy = false;
+      $('heatNote').textContent = '讀不到歷次紀錄，請重新整理。';
+    });
+  }
+
+  var PROG_CLASS = {};
+  PROG_CLASS[C.PROG.GAINED] = 'fluent';
+  PROG_CLASS[C.PROG.MIXED] = 'shaky';
+  PROG_CLASS[C.PROG.STUCK] = 'weak';
+  PROG_CLASS[C.PROG.NONE] = 'unknown';
+
+  function renderProg() {
+    var prog = C.classProgress(progHists(), threshold());
+
+    var retried = 0;
+    prog.forEach(function (p) { if (p.retried > 0) retried++; });
+    $('coverage').innerHTML = '　' + retried + ' 格有人練過兩次以上' +
+      (retried ? '' : '　<span style="color:var(--weak)">（還沒有人重複練，看不出進步）</span>');
+
+    var t = $('heat');
+    t.innerHTML = '';
+    var head = t.insertRow();
+    head.insertCell().outerHTML = '<th>×</th>';
+    for (var b = 1; b <= 9; b++) head.insertCell().outerHTML = '<th>' + b + '</th>';
+
+    for (var a = 1; a <= 9; a++) {
+      var tr = t.insertRow();
+      tr.insertCell().outerHTML = '<th>' + a + '</th>';
+      for (var bb = 1; bb <= 9; bb++) {
+        (function (row, aa, b2) {
+          var p = prog[C.cellIndex(aa, b2)];
+          var td = row.insertCell();
+          td.className = PROG_CLASS[p.status];
+          td.innerHTML = (aa * b2) +
+            '<span class="n">↑' + p.gained + ' ✗' + p.stuck + '</span>';
+          td.title = aa + ' × ' + b2 + '　練起來了 ' + p.gained + ' 人、' +
+                     '卡住 ' + p.stuck + ' 人、重複練過 ' + p.retried + ' 人' +
+                     (p.lost ? '、退步 ' + p.lost + ' 人' : '');
+          td.onclick = function () { showDetail(aa, b2); };
+        })(tr, a, bb);
+      }
+    }
+
+    var stuck = C.stubbornCells(prog, 10);
+    var ol = $('stuckList');
+    ol.innerHTML = '';
+    stuck.forEach(function (p) {
+      var who = p.who.map(function (w) {
+        return w.name ? (w.seat + ' ' + w.name) : (w.seat + ' 號');
+      }).join('、');
+      var li = document.createElement('li');
+      li.innerHTML = '<span><strong>' + p.a + ' × ' + p.b + ' ＝ ' + (p.a * p.b) +
+        '</strong><span class="sub" style="margin-left:8px">' + p.stuck +
+        ' 人卡住</span><br><span class="sub">' + who + '</span></span>';
+      li.onclick = function () { showDetail(p.a, p.b); };
+      ol.appendChild(li);
+    });
+    if (!stuck.length) {
+      var li2 = document.createElement('li');
+      li2.innerHTML = retried
+        ? '<span class="sub">沒有人練了三次以上還卡住，練習有發揮作用。</span>'
+        : '<span class="sub">還沒有人重複練同一格，要練過幾次才看得出來。</span>';
+      ol.appendChild(li2);
+    }
+
+    $('heatNote').innerHTML =
+      '比較每個人<strong>第一次</strong>與<strong>最近一次</strong>的表現。' +
+      '綠＝重練過的人現在都熟練了；黃＝有人變好但還有人沒到；' +
+      '<strong style="color:var(--weak)">紅＝有人練了三次以上還是沒熟練</strong>；' +
+      '灰＝沒有人練過兩次以上，還無從比較。格內 ↑ 是練起來的人數、✗ 是卡住的人數。';
+  }
+
+  function render() {
+    var prog = view() === 'prog';
+    $('cardStuck').hidden = !prog;
+    $('cardTop').hidden = prog;
+    if (!prog) {
+      renderNow();
+      $('heatNote').textContent =
+        '格子顏色＝該題不會＋不熟的人數比例。斜紋＝做過的人不到六成，先別當結論。點任一格看是哪些人。';
+      return;
+    }
+    if (!progData) { loadProgress(); return; }
+    renderProg();
+  }
+
   function snapshots() {
     var g = group();
     return data.students.map(function (s) {
@@ -260,7 +392,7 @@
     });
   }
 
-  function render() {
+  function renderNow() {
     var g = group();
     var snaps = snapshots();
     var heat = C.classHeatmap(snaps, g);
@@ -668,7 +800,7 @@
   /* ---- 分頁：把既有的卡片搬進頁籤，避免一頁拉很長 ---- */
 
   var TABS = [
-    { id: 'heat',   label: '熱圖總覽',   cards: ['cardHeat', 'cardTop', 'anomalyCard', 'detailCard'] },
+    { id: 'heat',   label: '熱圖總覽',   cards: ['cardHeat', 'cardStuck', 'cardTop', 'anomalyCard', 'detailCard'] },
     { id: 'report', label: '單場報表',   cards: ['cardReport'] },
     { id: 'one',    label: '看單一學生', cards: ['cardOne'] },
     { id: 'admin',  label: '設定與刪除', cards: ['cardLink', 'cardProxy', 'cardDanger'] }
@@ -1025,6 +1157,35 @@
   $('groupSel').onchange = loadReport;
 
 
+
+  /**
+   * 某一格的歷次表現。
+   * 「8.2 → 5.1 → 4.8 秒」和「4.9 → 5.0 → 4.8 秒」在現況圖上是同一個顏色，
+   * 但一個是有在進步、一個是完全沒動——這行字就是要把兩者分開。
+   */
+  function historyHtml(idx) {
+    if (!progData) return '';
+    var lines = [];
+    progHists().forEach(function (h) {
+      var arr = h.cells[idx] || [];
+      if (arr.length < 2) return;
+      var seq = arr.map(function (x) {
+        return x.ok === 1 && x.ms !== null && x.ms !== undefined
+          ? (x.ms / 1000).toFixed(1) : '✗';
+      }).join(' → ');
+      var p = C.cellProgress(arr, threshold());
+      var tag = p.stuck ? '<span style="color:var(--weak)">　卡住</span>'
+              : p.gained ? '<span style="color:#4a8a52">　練起來了</span>'
+              : p.delta < 0 ? '<span style="color:var(--weak)">　退步</span>' : '';
+      var who = h.name ? (h.seat + ' ' + h.name) : (h.seat + ' 號');
+      lines.push(who + '：' + seq + ' 秒' + tag);
+    });
+    if (!lines.length) return '';
+    return '<br><br><strong>歷次表現</strong><br>' +
+           '<span class="sub">只列練過兩次以上的人，✗ 代表那次答錯或沒作答。</span><br>' +
+           lines.join('<br>');
+  }
+
   function showDetail(a, b) {
     var g = group();
     var idx = C.cellIndex(a, b);
@@ -1049,7 +1210,8 @@
       '<br><br><strong style="color:#4a8a52">很熟（' + fluent.length + '）</strong><br>' +
       (fluent.join('、') || '無') +
       '<br><br><span class="sub">括號內是思考時間（從題目出現到開始寫答案）。' +
-      '沒有資料：' + (none.join('、') || '無') + '</span>';
+      '沒有資料：' + (none.join('、') || '無') + '</span>' +
+      historyHtml(idx);
     $('detailCard').hidden = false;
     $('detailCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -1141,6 +1303,7 @@
   };
   $('grp').onchange = function () { render(); renderOne(); };
   $('thr').onchange = function () { render(); renderOne(); };
+  $('view').onchange = function () { render(); };
   $('csv').onclick = exportCsv;
 
   $('proxyGo').onclick = function () {

@@ -74,6 +74,9 @@ def contract_errors(p):
     return e
 
 
+NLC = chr(10)
+
+
 def route_gas(route, request):
     if request.method == 'POST':
         posted.append(json.loads(request.post_data))
@@ -148,6 +151,20 @@ def route_gas(route, request):
                 "med": 2100, "cpm": None,
                 "detail": [[7, 8, 56, 1, 2100, 0], [7, 9, 49, 0, 4300, 0],
                            [7, 6, None, None, None, 0]]}
+    elif 'action=progress' in url:
+        # [ms, ok, flags, 日期]；小明的 7×8 練三次仍慢＝卡住，小華由慢變快＝練起來了
+        body = {"ok": True, "className": "測試班", "seatOnly": False,
+                "students": [
+                    {"seat": 1, "name": "小明", "cells": {
+                        str(C78): [[9000, 0, 0, "2026-09-01"],
+                                   [7000, 1, 0, "2026-09-02"],
+                                   [6400, 1, 0, "2026-09-03"]],
+                        str(C69): [[5000, 1, 0, "2026-09-01"],
+                                   [2400, 1, 0, "2026-09-03"]]}},
+                    {"seat": 2, "name": "小華", "cells": {
+                        str(C78): [[5200, 1, 0, "2026-09-01"],
+                                   [2100, 1, 0, "2026-09-03"]]}},
+                    {"seat": 3, "name": "小美", "cells": {}}]}
     elif 'action=dashboard' in url:
         if 'pin=1234' not in url:
             body = {"ok": False, "code": "BAD_PIN", "left": 4}
@@ -565,6 +582,56 @@ def test_teacher(pg):
     ck(pg.eval_on_selector_all('table.heat td', 'e=>e.length') == 81, '切到全量組仍正常')
     pg.select_option('#grp', 'base')
     pg.wait_for_timeout(200)
+
+
+    # 進步視圖：練過多次才看得出價值
+    print('== 進步視圖')
+    pg.select_option('#view', 'prog')
+    pg.wait_for_selector('#cardStuck:not([hidden])', timeout=10000)
+    pg.wait_for_timeout(400)
+    ck(pg.is_hidden('#cardTop'), '進步視圖不顯示「明天要補的」（那是現況榜）')
+    ck('第一次' in pg.inner_text('#heatNote') and '最近一次' in pg.inner_text('#heatNote'),
+       '說明寫出比的是第一次與最近一次')
+
+    td78 = 'table.heat tr:nth-child(8) td:nth-child(9)'
+    ck('weak' in pg.eval_on_selector(td78, 'e=>e.className'),
+       '7×8 有人練三次還是沒熟練 → 紅')
+    ck('1' in pg.eval_on_selector(td78, 'e=>e.textContent'), '格內寫出人數')
+    td69 = 'table.heat tr:nth-child(7) td:nth-child(10)'
+    ck('fluent' in pg.eval_on_selector(td69, 'e=>e.className'),
+       '6×9 練起來了 → 綠')
+    td11 = 'table.heat tr:nth-child(2) td:nth-child(2)'
+    ck('unknown' in pg.eval_on_selector(td11, 'e=>e.className'),
+       '沒人重複練過的格子 → 灰，不假裝有結論')
+
+    stuck = pg.inner_text('#stuckList')
+    ck('7 × 8' in stuck, '頑固格清單列出 7×8')
+    ck('小明' in stuck, '頑固格指名是誰卡住')
+    ck('6 × 9' not in stuck, '練起來的格子不會出現在頑固格清單')
+
+    # 點格子看歷次秒數
+    pg.click(td78)
+    pg.wait_for_selector('#detailCard:not([hidden])')
+    det = pg.inner_text('#detailBody')
+    ck('歷次表現' in det, '點格子看得到歷次表現')
+    ck('7.0 → 6.4' in det, '列出每一次的秒數：' + det.split('歷次表現')[-1][:40].replace(NLC, ' '))
+    ck('卡住' in det, '標出誰卡住了')
+    ck('2.1' in det and '練起來了' in det, '標出誰練起來了')
+
+    # 門檻是呈現層的東西，進步視圖也要跟著重算（D3）
+    pg.select_option('#thr', '2000')
+    pg.wait_for_timeout(300)
+    ck('shaky' in pg.eval_on_selector(td69, 'e=>e.className'),
+       '門檻改成 2 秒後，6×9 的 2.4 秒不再算「練起來了」')
+    pg.select_option('#thr', '3000')
+    pg.wait_for_timeout(300)
+    ck('fluent' in pg.eval_on_selector(td69, 'e=>e.className'), '門檻改回來完全復原')
+
+    pg.select_option('#view', 'now')
+    pg.wait_for_timeout(300)
+    ck(pg.is_hidden('#cardStuck'), '切回現況視圖，頑固格清單收起來')
+    ck(pg.is_visible('#cardTop'), '切回現況視圖，「明天要補的」回來')
+    ck('不會＋不熟' in pg.inner_text('#heatNote'), '說明也切回現況版')
 
     print('== 單一學生檢視與家長訊息')
     pg.click('#tabBar button:text-is("看單一學生")')

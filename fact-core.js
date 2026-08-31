@@ -369,6 +369,97 @@
       .slice(0, n || 10);
   }
 
+
+  /* ---- 進步視圖（練過多次之後才有意義） ---- */
+
+  var STUBBORN_TRIES = 3;   // 練到這個次數還是沒熟練，就不是「不熟」而是「卡住」
+
+  var PROG = {
+    NONE: 'none',       // 沒人練過兩次以上，無從比較
+    GAINED: 'gained',   // 重練過的人現在都熟練了
+    MIXED: 'mixed',     // 有人變好，但還有人沒到
+    STUCK: 'stuck'      // 有人練了 STUBBORN_TRIES 次還是沒熟練
+  };
+
+  var LV_RANK = {};
+  LV_RANK[LEVEL.WEAK] = 0;
+  LV_RANK[LEVEL.SHAKY] = 1;
+  LV_RANK[LEVEL.FLUENT] = 2;
+
+  /**
+   * 一位學生在某一格的進步狀況。
+   * hist 為該格依作答時間排序的原始作答 [{ ms, ok, flags }]。
+   *
+   * 刻意比「第一次 vs 最後一次」而不是比中位數：老師要看的是有沒有往前走，
+   * 中位數會把早期的差表現一直拖著，練起來了也看不出來。
+   */
+  function cellProgress(hist, thresholdMs) {
+    var T = thresholdMs || DEFAULT_THRESHOLD_MS;
+    var valid = (hist || []).filter(function (h) { return isValid(h.flags); });
+    if (!valid.length) {
+      return { tries: 0, first: LEVEL.UNKNOWN, last: LEVEL.UNKNOWN, delta: 0,
+               firstMs: null, lastMs: null, stuck: false, gained: false };
+    }
+    var f = valid[0], l = valid[valid.length - 1];
+    var first = gradeAttempt(f, T), last = gradeAttempt(l, T);
+    return {
+      tries: valid.length,
+      first: first,
+      last: last,
+      delta: LV_RANK[last] - LV_RANK[first],
+      firstMs: f.ok === 1 ? f.ms : null,
+      lastMs: l.ok === 1 ? l.ms : null,
+      // 只練過一次的不算卡住——那只是還沒練
+      stuck: valid.length >= STUBBORN_TRIES && last !== LEVEL.FLUENT,
+      gained: valid.length >= 2 && last === LEVEL.FLUENT && first !== LEVEL.FLUENT
+    };
+  }
+
+  /**
+   * 全班 81 格的進步視圖。
+   * hists: [{ seat, name, cells: [81][] }]，cells[i] 為該格依時間排序的作答。
+   *
+   * 顏色的取捨：只要有人卡住就整格判 STUCK。那一格靠學生自己練不會好，
+   * 是老師該進場的地方——被「其他人都練起來了」稀釋掉就失去意義了。
+   */
+  function classProgress(hists, thresholdMs) {
+    var out = [];
+    for (var i = 0; i < 81; i++) {
+      var tried = 0, retried = 0, gained = 0, held = 0, stuck = 0, lost = 0;
+      var stuckWho = [];
+      for (var k = 0; k < hists.length; k++) {
+        var h = hists[k];
+        var p = cellProgress((h.cells || [])[i] || [], thresholdMs);
+        if (p.tries > 0) tried++;
+        if (p.tries >= 2) retried++;
+        if (p.gained) gained++;
+        if (p.tries >= 2 && p.first === LEVEL.FLUENT && p.last === LEVEL.FLUENT) held++;
+        if (p.tries >= 2 && p.delta < 0) lost++;
+        if (p.stuck) { stuck++; stuckWho.push({ seat: h.seat, name: h.name || '', tries: p.tries }); }
+      }
+      var status = PROG.NONE;
+      if (stuck > 0) status = PROG.STUCK;
+      else if (retried > 0 && gained + held < retried) status = PROG.MIXED;
+      else if (retried > 0) status = PROG.GAINED;
+
+      var cc = cellOf(i);
+      out.push({
+        index: i, a: cc.a, b: cc.b,
+        tried: tried, retried: retried,
+        gained: gained, held: held, stuck: stuck, lost: lost,
+        who: stuckWho, status: status
+      });
+    }
+    return out;
+  }
+
+  /** 頑固格：卡住的人越多排越前面。這是「明天該講什麼」最直接的答案。 */
+  function stubbornCells(progress, n) {
+    var out = progress.filter(function (p) { return p.stuck > 0; })
+      .sort(function (x, y) { return y.stuck - x.stuck || x.index - y.index; });
+    return n ? out.slice(0, n) : out;
+  }
+
   /* ---- 自選測驗範圍 ---- */
 
   /**
@@ -697,6 +788,11 @@
     classHeatmap: classHeatmap,
     classCoverage: classCoverage,
     topWeak: topWeak,
+    PROG: PROG,
+    STUBBORN_TRIES: STUBBORN_TRIES,
+    cellProgress: cellProgress,
+    classProgress: classProgress,
+    stubbornCells: stubbornCells,
     isBaseSession: isBaseSession,
     buildSnapshot: buildSnapshot,
     median: median,
