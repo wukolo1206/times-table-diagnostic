@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608312049">
+<link rel="stylesheet" href="style.css?v=202608312108">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -32,6 +32,16 @@
   .bar select { width: auto; font-size: 16px; padding: 8px; }
   .namelist { font-size: 16px; line-height: 1.9; }
   .warn { background: #fff6f4; border-color: var(--weak); }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 2px solid var(--line);
+          margin-bottom: 16px; }
+  .tabs button {
+    background: none; border: none; border-bottom: 3px solid transparent;
+    border-radius: 0; color: var(--muted); font-size: 16px; padding: 10px 14px;
+    margin-bottom: -2px;
+  }
+  .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+  .tabs.sub { border-bottom-width: 1px; margin: 4px 0 12px; }
+  .tabs.sub button { font-size: 15px; padding: 7px 12px; }
   table.sess { border-collapse: collapse; width: 100%; font-size: 15px; }
   table.sess th, table.sess td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; }
   table.sess th { color: var(--muted); font-weight: 600; font-size: 13px; }
@@ -105,7 +115,10 @@
       <button id="csv" class="ghost">匯出 CSV</button>
     </div>
 
-    <div class="card" style="background:#f4f8f9;border-color:var(--accent)">
+    <div class="tabs" id="tabBar"></div>
+    <div id="panels"></div>
+
+    <div class="card" id="cardLink" style="background:#f4f8f9;border-color:var(--accent)">
       <h2 style="margin:0 0 6px">學生用的連結</h2>
       <p class="sub" style="margin:0 0 10px">
         把這個連結發給學生（LINE、Google Classroom、聯絡簿都可以），
@@ -122,15 +135,15 @@
       </p>
     </div>
 
-    <div class="cols">
+    <div class="cols" id="oldCols">
       <div class="main">
-        <div class="card">
+        <div class="card" id="cardHeat">
           <div class="gridwrap"><table class="heat" id="heat"></table></div>
           <p class="sub" style="margin:10px 0 0">
             格子顏色＝該題不會＋不熟的人數比例。斜紋＝做過的人不到六成，先別當結論。點任一格看是哪些人。
           </p>
         </div>
-        <div class="card">
+        <div class="card" id="cardReport">
           <h2 style="margin:0 0 6px">全班某一次施測</h2>
           <p class="sub" style="margin:0 0 10px">同一天、同模式、同範圍算一場。</p>
           <select id="groupSel"><option>載入中…</option></select>
@@ -143,7 +156,7 @@
           <div class="namelist" id="detailBody"></div>
         </div>
 
-        <div class="card">
+        <div class="card" id="cardOne">
           <h2 style="margin:0 0 10px">看單一學生</h2>
           <select id="oneSeat"></select>
           <div id="onePanel" hidden style="margin-top:14px">
@@ -169,7 +182,7 @@
       </div>
 
       <div class="side">
-        <div class="card">
+        <div class="card" id="cardTop">
           <h2 style="margin:0 0 8px">明天要補的</h2>
           <ol class="top" id="top"></ol>
           <p class="sub" id="topEmpty" hidden style="margin:0">目前沒有明顯落後的算式。</p>
@@ -178,13 +191,13 @@
           <h2 style="margin:0 0 8px">要看一下的</h2>
           <div class="namelist" id="anomalies"></div>
         </div>
-        <div class="card">
+        <div class="card" id="cardProxy">
           <h2 style="margin:0 0 8px">代作答</h2>
           <p class="sub" style="margin:0 0 8px">幫缺席或轉學的學生開始診斷。</p>
           <select id="proxySeat"></select>
           <div style="margin-top:10px"><button id="proxyGo">開始</button></div>
         </div>
-        <div class="card warn">
+        <div class="card warn" id="cardDanger">
           <h2 style="margin:0 0 8px">刪除本班資料</h2>
           <p class="sub" style="margin:0 0 8px">全部作答紀錄與名單都會刪掉，無法復原。</p>
           <button id="del" style="background:var(--weak)">刪除</button>
@@ -196,9 +209,9 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608312049"></script>
-<script src="fact-chart.js?v=202608312049"></script>
-<script src="config.js?v=202608312049"></script>
+<script src="fact-core.js?v=202608312108"></script>
+<script src="fact-chart.js?v=202608312108"></script>
+<script src="config.js?v=202608312108"></script>
 <script>
 (function () {
   'use strict';
@@ -651,6 +664,46 @@
 
 
 
+
+  /* ---- 分頁：把既有的卡片搬進頁籤，避免一頁拉很長 ---- */
+
+  var TABS = [
+    { id: 'heat',   label: '熱圖總覽',   cards: ['cardHeat', 'cardTop', 'anomalyCard', 'detailCard'] },
+    { id: 'report', label: '單場報表',   cards: ['cardReport'] },
+    { id: 'one',    label: '看單一學生', cards: ['cardOne'] },
+    { id: 'admin',  label: '設定與刪除', cards: ['cardLink', 'cardProxy', 'cardDanger'] }
+  ];
+
+  function buildTabs() {
+    if ($('panels').children.length) return;      // 已經建過就不重來
+    var bar = $('tabBar'), host = $('panels');
+
+    TABS.forEach(function (t, i) {
+      var panel = document.createElement('div');
+      panel.id = 'panel-' + t.id;
+      panel.hidden = (i > 0);
+      t.cards.forEach(function (cid) {
+        var el = $(cid);
+        if (el) panel.appendChild(el);            // 直接搬節點，事件與內容都跟著走
+      });
+      host.appendChild(panel);
+
+      var b = document.createElement('button');
+      b.textContent = t.label;
+      b.className = (i === 0 ? 'on' : '');
+      b.onclick = function () {
+        TABS.forEach(function (x) { $('panel-' + x.id).hidden = (x.id !== t.id); });
+        Array.prototype.forEach.call(bar.children, function (x) { x.classList.remove('on'); });
+        b.classList.add('on');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      };
+      bar.appendChild(b);
+    });
+
+    var old = $('oldCols');
+    if (old) old.remove();                        // 原本的兩欄容器已經空了
+  }
+
   /* ---- 全班某一次施測的報表（A 誰做了 / B 每題統計 / C 常見錯誤） ---- */
 
   var SLOW_MS = 3000;      // 超過這個秒數視為「答對但慢」，與熱圖門檻一致
@@ -749,8 +802,10 @@
     var r = repData;
     var h = '';
 
+    h += '<div class="tabs sub" id="repTabs"></div>';
+
     /* A ---- 誰做了、考得怎樣 */
-    h += '<div class="repsec"><h3>A　這一次誰做了、考得怎樣</h3>';
+    h += '<div class="repsec" id="secA"><h3>A　這一次誰做了、考得怎樣</h3>';
     h += '<p class="why">點欄位標題可排序。「中位思考」是這位學生本場每題思考時間的中位數。</p>';
     h += '<table class="rep" id="tblA"><tr>' +
          '<th style="width:34px"><input type="checkbox" id="pickAll" title="全選"></th>' +
@@ -784,7 +839,7 @@
 
     /* B ---- 每一題全班統計 */
     var cells = sortCells(r.cells);
-    h += '<div class="repsec"><h3>B　每一題全班的表現</h3>';
+    h += '<div class="repsec" id="secB"><h3>B　每一題全班的表現</h3>';
     h += '<p class="why">點欄位標題可排序。<strong>注意「錯很少但很慢」的題目</strong>——' +
          '熱圖會顯示綠色，但代表全班多半是算出來的，不是背出來的。</p>';
     h += '<table class="rep" id="tblB"><tr>' +
@@ -805,7 +860,7 @@
     h += '</table></div>';
 
     /* C ---- 常見錯誤答案 */
-    h += '<div class="repsec"><h3>C　全班常犯的錯</h3>';
+    h += '<div class="repsec" id="secC"><h3>C　全班常犯的錯</h3>';
     if (!r.errors.length) {
       h += '<p class="sub">這一場沒有人答錯。</p>';
     } else {
@@ -831,6 +886,7 @@
 
     $('reportBox').innerHTML = h;
     bindPicker(r);
+    buildRepTabs();
 
     Array.prototype.forEach.call($('reportBox').querySelectorAll('th[data-k]'), function (el) {
       el.onclick = function () {
@@ -932,6 +988,34 @@
            (on ? (repSortB.asc ? ' ▲' : ' ▼') : '') + '</th>';
   }
 
+
+  /** 單場報表的 A／B／C 小頁籤。三張表疊在一起太長，一次只看一張。 */
+  var repTab = 'A';
+
+  function buildRepTabs() {
+    var bar = $('repTabs');
+    if (!bar) return;
+    bar.innerHTML = '';
+    [['A', '誰做了'], ['B', '每題表現'], ['C', '常犯的錯']].forEach(function (t) {
+      var b = document.createElement('button');
+      b.textContent = t[0] + '　' + t[1];
+      b.className = (repTab === t[0] ? 'on' : '');
+      b.onclick = function () { repTab = t[0]; showRepSec(); };
+      bar.appendChild(b);
+    });
+    showRepSec();
+  }
+
+  function showRepSec() {
+    ['A', 'B', 'C'].forEach(function (k) {
+      var el = $('sec' + k);
+      if (el) el.hidden = (k !== repTab);
+    });
+    Array.prototype.forEach.call($('repTabs').children, function (b, i) {
+      b.classList.toggle('on', ['A', 'B', 'C'][i] === repTab);
+    });
+  }
+
   function th(key, label) {
     var on = repSort.key === key;
     return '<th data-k="' + key + '" class="' + (on ? 'on' : '') + '">' + label +
@@ -1008,6 +1092,7 @@
         $('loginMsg').textContent = '';
         $('loginCard').hidden = true;
         $('board').hidden = false;
+        buildTabs();
         $('cname').textContent = r.className;
 
         // 學生不該需要打代碼——給老師一個可直接發出去的連結

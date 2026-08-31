@@ -517,10 +517,20 @@ def test_teacher(pg):
     pg.fill('#pin', '1234')
     pg.click('#login')
     pg.wait_for_selector('#board:not([hidden])')
+
+    # 分頁：進來預設停在熱圖，其他頁籤的內容先收起來
+    tabs = pg.eval_on_selector_all('#tabBar button', 'e=>e.map(x=>x.textContent)')
+    ck(len(tabs) == 4, '四個上層頁籤，實際 %d：%s' % (len(tabs), '／'.join(tabs)))
+    ck(pg.is_visible('#cardHeat'), '預設停在熱圖總覽')
+    ck(pg.is_hidden('#cardOne'), '其他頁籤的內容先收起來')
+
     ck(pg.eval_on_selector_all('table.heat td', 'e=>e.length') == 81, '班級熱圖 81 格')
-    ck('?cls=TEST01' in pg.inner_text('#stuLink'), '顯示可直接發給學生的連結')
-    ck('teacher.html' not in pg.inner_text('#stuLink'), '學生連結不會指到教師頁')
-    ck(pg.inner_text('#codeShow') == 'TEST01', '同時附上班級代碼備用')
+    ck('?cls=TEST01' in pg.eval_on_selector('#stuLink', 'e=>e.textContent'),
+       '顯示可直接發給學生的連結')
+    ck('teacher.html' not in pg.eval_on_selector('#stuLink', 'e=>e.textContent'),
+       '學生連結不會指到教師頁')
+    ck(pg.eval_on_selector('#codeShow', 'e=>e.textContent') == 'TEST01',
+       '同時附上班級代碼備用')
     # 沒做過的學生也要算進分母，否則「樣本不足」的保護會失效
     ck('5 人中 3 人有資料' in pg.inner_text('#coverage'),
        '涵蓋率把沒做過的人算進分母：' + pg.inner_text('#coverage').strip())
@@ -557,7 +567,9 @@ def test_teacher(pg):
     pg.wait_for_timeout(200)
 
     print('== 單一學生檢視與家長訊息')
-    ck(pg.is_visible('#onePanel'), '進入後就顯示單一學生檢視')
+    pg.click('#tabBar button:text-is("看單一學生")')
+    pg.wait_for_timeout(300)
+    ck(pg.is_visible('#onePanel'), '切到頁籤後顯示單一學生檢視')
     pg.select_option('#oneSeat', '1')
     pg.wait_for_timeout(200)
     ck('小明' in pg.inner_text('#oneSummary'), '顯示學生姓名')
@@ -602,6 +614,12 @@ def test_teacher(pg):
     pg.select_option('#oneSeat', '1')
     pg.wait_for_timeout(200)
 
+    print('== 切到單場報表')
+    pg.click('#tabBar button:text-is("單場報表")')
+    pg.wait_for_timeout(300)
+    ck(pg.is_hidden('#cardHeat'), '切走後熱圖收起來')
+    ck(pg.is_visible('#cardReport'), '單場報表顯示出來')
+
     # 全班某一次施測
     print('== 全班報表')
     pg.wait_for_selector('#reportBox:not([hidden])', timeout=15000)
@@ -616,14 +634,22 @@ def test_teacher(pg):
     ck('快了 6 題' in pg.inner_text('#trendBox'), '算出跟第一次的差距')
     ck('精熟練習' in opts[0] and '7 的乘法' in opts[0], '選項寫出日期、模式、範圍')
 
-    rep = pg.inner_text('#reportBox')
+    ck(pg.eval_on_selector_all('#repTabs button', 'e=>e.length') == 3, 'A／B／C 三個小頁籤')
+    ck(pg.is_visible('#secA'), '預設顯示 A')
+    ck(pg.is_hidden('#secB'), 'B 先收起來')
+
+    rep = pg.inner_text('#secA')
     ck('這一次誰做了' in rep, 'A 區塊：誰做了')
     ck('還沒做（1 人）' in rep and '小美' in rep, 'A 區塊列出沒做的人')
     ck('70' in rep, 'A 區塊算出分數（7 對 × 10）')
     ck('4.2 秒' in rep, 'A 區塊顯示中位思考時間')
 
-    ck('每一題全班的表現' in rep, 'B 區塊：每題統計')
-    ck('5.2 秒' in rep and '偏慢' in rep, 'B 區塊標出答對但慢的題目')
+    pg.click('#repTabs button:has-text("每題表現")')
+    pg.wait_for_timeout(200)
+    ck(pg.is_visible('#secB') and pg.is_hidden('#secA'), '切到 B，A 收起來')
+    repB = pg.inner_text('#secB')
+    ck('每一題全班的表現' in repB, 'B 區塊：每題統計')
+    ck('5.2 秒' in repB and '偏慢' in repB, 'B 區塊標出答對但慢的題目')
 
     # B 表排序
     def b_first():
@@ -643,9 +669,14 @@ def test_teacher(pg):
     pg.wait_for_timeout(200)
     ck('7 × 8' in b_first(), '依錯的人數排序回到 7×8：' + b_first().strip())
 
-    ck('全班常犯的錯' in rep, 'C 區塊：常見錯誤')
-    ck('和別句口訣記混了' in rep, 'C 區塊寫出錯誤原因')
-    ck('把乘法當成加法算' in rep, 'C 區塊分辨不同錯誤型態')
+    pg.click('#repTabs button:has-text("常犯的錯")')
+    pg.wait_for_timeout(200)
+    repC = pg.inner_text('#secC')
+    ck('全班常犯的錯' in repC, 'C 區塊：常見錯誤')
+    ck('和別句口訣記混了' in repC, 'C 區塊寫出錯誤原因')
+    ck('把乘法當成加法算' in repC, 'C 區塊分辨不同錯誤型態')
+    pg.click('#repTabs button:has-text("誰做了")')
+    pg.wait_for_timeout(200)
 
     # 排序
     slow_first = pg.eval_on_selector_all('#tblA th[data-k]', 'e=>e.map(x=>x.textContent)')
@@ -659,6 +690,8 @@ def test_teacher(pg):
 
     # 每一次測驗的明細
     print('== 單場測驗明細')
+    pg.click('#tabBar button:text-is("看單一學生")')
+    pg.wait_for_timeout(300)
     ck(pg.is_visible('#loadSessions'), '有「看每一次測驗的明細」按鈕')
     pg.click('#loadSessions')
     pg.wait_for_selector('table.sess tr.pick', timeout=10000)
@@ -691,7 +724,9 @@ def test_teacher(pg):
     ck(len(deleted) == 1 and deleted[0][0] == 'session', '確認後才真的刪')
     ck('id=s1' in deleted[0][1], '刪的是被點的那一場')
 
-    # 勾選刪除
+    # 勾選刪除（回到單場報表的 A 表）
+    pg.click('#tabBar button:text-is("單場報表")')
+    pg.click('#repTabs button:has-text("誰做了")')
     pg.wait_for_selector('#delPicked', timeout=15000)
     deleted.clear()
     ck(pg.eval_on_selector('#delPicked', 'e=>e.disabled') is True, '沒勾人時不能刪')
@@ -722,6 +757,8 @@ def test_teacher(pg):
     ck(len(deleted) == 1 and deleted[0][0] == 'group', '確認後才刪')
     ck('seats=1' in deleted[0][1], '只送出被勾的座號，不是整場：' + deleted[0][1].split('&seats=')[-1][:12])
 
+    pg.click('#tabBar button:text-is("看單一學生")')
+    pg.wait_for_timeout(300)
     pg.click('#printAll')
     pg.wait_for_timeout(300)
     sheets = pg.eval_on_selector_all('#printArea .sheet', 'e=>e.length')
