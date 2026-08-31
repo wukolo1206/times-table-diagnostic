@@ -2,7 +2,7 @@
 project: 九九乘法熟練度診斷
 category: 康軒數學
 status: 已上線並實測，待實機平板＋校內網路驗證
-version: 0.9.0
+version: 0.10.0
 url: https://wukolo1206.github.io/times-table-diagnostic/
 next_action: 用勾選刪除清掉碧小408 的測試場次；拿真平板到學校連校內網路測一次；全班跑一次診斷
 updated: 2026-08-30
@@ -32,6 +32,7 @@ updated: 2026-08-30
 | `fact-core.js` | 純函式：等級判定、聚合、快照、熱圖、Top 10、反應時間、資料契約 |
 | `fact-net.js` | 上傳層：座號錯開、退避重試、localStorage 佇列、`text/plain` POST |
 | `fact-quiz.js` | 作答介面：雙 rAF 計時、數字鍵盤、20 秒軟上限、進度暫存 |
+| `fact-chart.js` | 內嵌 SVG 折線／長條圖，不引入外部套件（學校網路可能擋 CDN） |
 | `gas/Code.gs` | 後端：`doGet`／`doPost`、快照增量與全量重算、保留政策 |
 
 ## 頁面

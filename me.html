@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>我的九九乘法</title>
-<link rel="stylesheet" href="style.css?v=202608302118">
+<link rel="stylesheet" href="style.css?v=202608312049">
 <style>
   table.heat { margin: 8px auto; }
   table.heat th, table.heat td { width: 40px; height: 40px; font-size: 13px; }
@@ -54,6 +54,7 @@
   <div class="card" id="bestCard" hidden>
     <h2 style="margin:0 0 10px">我的最佳紀錄</h2>
     <div class="best-row" id="best"></div>
+    <div id="trend" hidden style="margin-top:16px"></div>
   </div>
 
   <div class="card" id="weakCard" hidden>
@@ -79,12 +80,19 @@
   </div>
 </div>
 
-<script src="fact-core.js?v=202608302118"></script>
-<script src="config.js?v=202608302118"></script>
+<script src="fact-core.js?v=202608312049"></script>
+<script src="fact-chart.js?v=202608312049"></script>
+<script src="config.js?v=202608312049"></script>
 <script>
 (function () {
   'use strict';
-  var C = window.FactCore;
+  var C = window.FactCore, C_CHART = window.FactChart;
+
+  (function () {
+    var st = document.createElement('style');
+    st.textContent = C_CHART.CSS;
+    document.head.appendChild(st);
+  })();
   var $ = function (id) { return document.getElementById(id); };
 
   function qs(n) {
@@ -204,6 +212,26 @@
                     '</div><div class="big">' + p[1] + '</div>';
       box.appendChild(d);
     });
+    // 越練越快看得見，比單看分數有感。用每分鐘題數，練習長度不同也能比
+    var line = sprints.filter(function (sp) { return sp.cpm; }).slice()
+      .sort(function (x, y) {
+        return String(x.answeredAt) < String(y.answeredAt) ? -1 : 1;
+      });
+    if (line.length >= 2) {
+      $('trend').innerHTML =
+        '<div style="font-size:16px;font-weight:700;margin-bottom:2px">我的進步</div>' +
+        '<p class="sub" style="margin:0 0 6px">每分鐘答對幾題。越高越快。</p>' +
+        C_CHART.line(line.map(function (sp) {
+          return {
+            label: String(sp.answeredAt).slice(5, 10),
+            value: sp.cpm,
+            tip: String(sp.answeredAt).slice(0, 10) + '　' + sp.cpm + ' 題／分　' +
+                 (sp.correct * 10) + ' 分'
+          };
+        }), { height: 46, color: '#7bb37e' });
+      $('trend').hidden = false;
+    }
+
     $('bestCard').hidden = false;
   }
 

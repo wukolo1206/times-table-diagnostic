@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>九九乘法診斷｜教師</title>
-<link rel="stylesheet" href="style.css?v=202608302118">
+<link rel="stylesheet" href="style.css?v=202608312049">
 <style>
   .wrap { max-width: 1080px; }
   .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
@@ -53,6 +53,9 @@
   .repsec .why { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
   .slow { color: var(--weak); font-weight: 700; }
   .misslist { font-size: 15px; line-height: 1.9; color: var(--weak); }
+  .chartbox { margin-top: 14px; }
+  .chartbox h3 { font-size: 16px; margin: 0 0 2px; }
+  .chartbox .why { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
   button.del-sess {
     font-size: 13px; padding: 4px 10px; background: #fff;
     color: var(--weak); border: 1px solid var(--line);
@@ -131,6 +134,7 @@
           <h2 style="margin:0 0 6px">全班某一次施測</h2>
           <p class="sub" style="margin:0 0 10px">同一天、同模式、同範圍算一場。</p>
           <select id="groupSel"><option>載入中…</option></select>
+          <div class="chartbox" id="trendBox" hidden></div>
           <div id="reportBox" hidden style="margin-top:14px"></div>
         </div>
 
@@ -192,12 +196,20 @@
 
 <div id="printArea"></div>
 
-<script src="fact-core.js?v=202608302118"></script>
-<script src="config.js?v=202608302118"></script>
+<script src="fact-core.js?v=202608312049"></script>
+<script src="fact-chart.js?v=202608312049"></script>
+<script src="config.js?v=202608312049"></script>
 <script>
 (function () {
   'use strict';
-  var C = window.FactCore;
+  var C = window.FactCore, C_CHART = window.FactChart;
+
+  // 圖表樣式由 fact-chart.js 提供，避免每個頁面各抄一份
+  (function () {
+    var st = document.createElement('style');
+    st.textContent = C_CHART.CSS;
+    document.head.appendChild(st);
+  })();
   var $ = function (id) { return document.getElementById(id); };
   var data = null, classCode = '', pin = '';
 
@@ -531,7 +543,27 @@
       $('sessionBox').innerHTML = '<span class="sub">這位還沒有任何測驗紀錄。</span>';
       return;
     }
-    var h = '<table class="sess"><tr><th>時間</th><th>種類</th><th>範圍</th>' +
+
+    var h = '';
+    // 個人練習趨勢：同樣用每分鐘題數，長度不同也能比
+    var sp = list.filter(function (x) { return x.mode === 'sprint' && x.cpm; })
+                 .slice().reverse();
+    if (sp.length >= 2) {
+      h += '<div class="chartbox"><h3>這位的練習趨勢</h3>' +
+           '<p class="why">縱軸是每分鐘答對幾題。點上滑過看該場的分數與範圍。</p>' +
+           C_CHART.line(sp.map(function (x) {
+             return {
+               label: String(x.answeredAt).slice(5, 10),
+               value: x.cpm,
+               tip: fmtTime(x.answeredAt) + '　' + x.cpm + ' 題／分　' +
+                    (x.correct * 10) + ' 分（' + x.correct + '/' + x.total + '）　' +
+                    (x.rows ? x.rows.split('').join('、') + ' 的乘法' : '全部') +
+                    (x.limitSec ? '　' + (x.limitSec / 60) + ' 分鐘' : '')
+             };
+           }), { height: 46 }) + '</div>';
+    }
+
+    h += '<table class="sess"><tr><th>時間</th><th>種類</th><th>範圍</th>' +
             '<th>分數</th><th>對／題</th><th>思考總秒數</th><th></th></tr>';
     list.forEach(function (s) {
       h += '<tr class="pick" data-id="' + s.id + '">' +
@@ -634,6 +666,7 @@
         sel.innerHTML = '<option value="">還沒有任何施測紀錄</option>';
         return;
       }
+      renderTrend(r.groups);
       r.groups.forEach(function (g) {
         var o = document.createElement('option');
         o.value = JSON.stringify({ day: g.day, mode: g.mode, rows: g.rows });
@@ -644,6 +677,44 @@
       });
       loadReport();
     });
+  }
+
+
+  /**
+   * 全班歷次練習的趨勢。用「每分鐘題數」不用分數——
+   * 練習長度可以是 1 到 5 分鐘，分數會跟著長度變，比不了。
+   */
+  function renderTrend(groups) {
+    // 自己依日期排序，不依賴上游給的順序——順序假設是很容易悄悄失效的東西
+    var sprints = groups.filter(function (g) {
+      return g.mode === 'sprint' && g.avgCpm !== null;
+    }).slice().sort(function (x, y) { return x.day < y.day ? -1 : (x.day > y.day ? 1 : 0); });
+
+    if (sprints.length < 2) {
+      $('trendBox').hidden = true;
+      return;
+    }
+    var pts = sprints.map(function (g) {
+      return {
+        label: g.day.slice(5),
+        value: g.avgCpm,
+        tip: g.day + '　全班中位 ' + g.avgCpm + ' 題／分　' +
+             '平均答對 ' + g.avgCorrect + ' 題　' + g.people + ' 人'
+      };
+    });
+    var first = pts[0].value, last = pts[pts.length - 1].value;
+    var diff = last - first;
+    $('trendBox').innerHTML =
+      '<h3>全班練習趨勢</h3>' +
+      '<p class="why">縱軸是每分鐘答對幾題。' +
+      '<strong>不用分數是因為練習長度可選 1～5 分鐘</strong>，分數會跟著長度變，比不了。' +
+      '滑過每個點看該場詳情。</p>' +
+      C_CHART.line(pts, { height: 46 }) +
+      '<p class="sub" style="margin:6px 0 0">' +
+      (diff > 0 ? ('比第一次快了 ' + diff + ' 題／分。')
+                : diff < 0 ? ('比第一次慢了 ' + (-diff) + ' 題／分。')
+                : '跟第一次一樣。') + '</p>';
+    $('trendBox').hidden = false;
   }
 
   function loadReport() {

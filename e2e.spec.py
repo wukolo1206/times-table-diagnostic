@@ -110,8 +110,12 @@ def route_gas(route, request):
         body = {"ok": True, "deleted": 2, "seats": 2}
     elif 'action=classgroups' in url:
         body = {"ok": True, "groups": [
-            {"key": "k1", "day": "2026-09-02", "mode": "sprint", "rows": "7", "people": 2},
-            {"key": "k2", "day": "2026-09-01", "mode": "diagnostic", "rows": "7", "people": 3}]}
+            {"key": "k1", "day": "2026-09-02", "mode": "sprint", "rows": "7", "people": 2,
+             "limitSec": 180, "avgCorrect": 30.0, "avgTotal": 33.0, "avgCpm": 20},
+            {"key": "k0", "day": "2026-09-03", "mode": "sprint", "rows": "7", "people": 2,
+             "limitSec": 180, "avgCorrect": 36.0, "avgTotal": 38.0, "avgCpm": 26},
+            {"key": "k2", "day": "2026-09-01", "mode": "diagnostic", "rows": "7", "people": 3,
+             "limitSec": None, "avgCorrect": 7.0, "avgTotal": 9.0, "avgCpm": None}]}
     elif 'action=classreport' in url:
         body = {"ok": True, "day": "2026-09-02", "mode": "sprint", "rows": "7",
                 "students": [
@@ -484,6 +488,8 @@ def test_me(pg):
     ck(pg.is_visible('#bestCard'), '有練習紀錄時顯示最佳紀錄')
     ck('330 分' in pg.inner_text('#best'), '最高分取所有場次的最佳（33 題×10）')
     ck('3 分鐘' in pg.inner_text('#best'), '標明最高分是幾分鐘拿的，避免不同長度混淆')
+    ck(pg.is_visible('#trend'), '兩次以上練習會畫出個人趨勢')
+    ck(pg.eval_on_selector_all('#trend svg circle', 'e=>e.length') == 2, '兩個點')
     ck(pg.is_visible('#cmpCard'), '有兩次診斷時顯示進步比較')
     ck('+11' in pg.eval_on_selector('#cmp', 'e=>e.textContent'), '進步題數算對（71-60）')
     ck(pg.is_visible('#weakCard'), '顯示還要多練的清單')
@@ -600,7 +606,14 @@ def test_teacher(pg):
     print('== 全班報表')
     pg.wait_for_selector('#reportBox:not([hidden])', timeout=15000)
     opts = pg.eval_on_selector_all('#groupSel option', 'e=>e.map(x=>x.textContent)')
-    ck(len(opts) == 2, '列出兩場施測，實際 %d' % len(opts))
+    ck(len(opts) == 3, '列出三場施測，實際 %d' % len(opts))
+
+    # 全班趨勢圖
+    ck(pg.is_visible('#trendBox'), '兩場以上練習會畫出全班趨勢')
+    ck(pg.eval_on_selector_all('#trendBox svg circle', 'e=>e.length') == 2,
+       '只畫練習場次（診斷不入圖）')
+    ck('每分鐘' in pg.inner_text('#trendBox'), '說明用每分鐘題數而非分數')
+    ck('快了 6 題' in pg.inner_text('#trendBox'), '算出跟第一次的差距')
     ck('精熟練習' in opts[0] and '7 的乘法' in opts[0], '選項寫出日期、模式、範圍')
 
     rep = pg.inner_text('#reportBox')

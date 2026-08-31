@@ -690,15 +690,27 @@ function apiClassGroups(code, pin) {
     try { cfg = JSON.parse(rows[i][10]) || {}; } catch (e) { cfg = {}; }
     var rg = cfg.rows || '';
     var key = day + '|' + mode + '|' + rg;
-    if (!map[key]) map[key] = { day: day, mode: mode, rows: rg, n: 0, seats: {} };
+    if (!map[key]) {
+      map[key] = { day: day, mode: mode, rows: rg, n: 0, seats: {},
+                   correct: 0, total: 0, cpm: [], limitSec: cfg.limitSec || null };
+    }
     map[key].n++;
     map[key].seats[Number(rows[i][5])] = 1;
+    map[key].correct += Number(rows[i][12]) || 0;
+    map[key].total += Number(rows[i][11]) || 0;
+    if (rows[i][15] !== '') map[key].cpm.push(Number(rows[i][15]));
   }
   var out = [];
   Object.keys(map).forEach(function (k) {
     var g = map[k];
-    out.push({ key: k, day: g.day, mode: g.mode, rows: g.rows,
-               people: Object.keys(g.seats).length });
+    var people = Object.keys(g.seats).length;
+    out.push({
+      key: k, day: g.day, mode: g.mode, rows: g.rows, people: people,
+      limitSec: g.limitSec,
+      avgCorrect: people ? Math.round(g.correct / people * 10) / 10 : 0,
+      avgTotal: people ? Math.round(g.total / people * 10) / 10 : 0,
+      avgCpm: g.cpm.length ? Math.round(FactCore.median(g.cpm)) : null
+    });
   });
   out.sort(function (x, y) { return x.day < y.day ? 1 : (x.day > y.day ? -1 : 0); });
   return { ok: true, groups: out };
